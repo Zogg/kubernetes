@@ -1,7 +1,6 @@
 {
 	"ImportPath": "k8s.io/kubernetes",
-	"GoVersion": "go1.5",
-	"GodepVersion": "v62",
+	"GoVersion": "go1.6",
 	"Packages": [
 		"./..."
 	],
