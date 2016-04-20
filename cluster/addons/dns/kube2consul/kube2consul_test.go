@@ -263,27 +263,27 @@ func TestHeadlessServiceWithNamedPorts(t *testing.T) {
 	ec := &fakeConsulClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newHeadlessService(testNamespace, testService)
-	assert.NoError(t, k2s.servicesStore.Add(&service))
+	assert.NoError(t, k2c.servicesStore.Add(&service))
 	endpoints := newEndpoints(service, newSubsetWithTwoPorts("http1", 80, "http2", 81, "10.0.0.1", "10.0.0.2"), newSubsetWithOnePort("https", 443, "10.0.0.3", "10.0.0.4"))
 
 	// We expect 10 records. 6 SRV records. 4 POD records.
 	expectedDNSRecords := 10
-	assert.NoError(t, k2s.endpointsStore.Add(&endpoints))
-	k2s.newService(&service)
+	assert.NoError(t, k2c.endpointsStore.Add(&endpoints))
+	k2c.newService(&service)
 	assert.Equal(t, expectedDNSRecords, len(ec.writes))
 	assertSRVEntryInEtcd(t, ec, "http1", "tcp", testService, testNamespace, 80, 2)
 	assertSRVEntryInEtcd(t, ec, "http2", "tcp", testService, testNamespace, 81, 2)
 	assertSRVEntryInEtcd(t, ec, "https", "tcp", testService, testNamespace, 443, 2)
 
 	endpoints.Subsets = endpoints.Subsets[:1]
-	k2s.handleEndpointAdd(&endpoints)
+	k2c.handleEndpointAdd(&endpoints)
 	// We expect 6 records. 4 SRV records. 2 POD records.
 	expectedDNSRecords = 6
 	assert.Equal(t, expectedDNSRecords, len(ec.writes))
 	assertSRVEntryInEtcd(t, ec, "http1", "tcp", testService, testNamespace, 80, 2)
 	assertSRVEntryInEtcd(t, ec, "http2", "tcp", testService, testNamespace, 81, 2)
 
-	k2s.removeService(&service)
+	k2c.removeService(&service)
 	assert.Empty(t, ec.writes)
 }
 
@@ -295,21 +295,21 @@ func TestHeadlessServiceEndpointsUpdate(t *testing.T) {
 	ec := &fakeConsulClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newHeadlessService(testNamespace, testService)
-	assert.NoError(t, k2s.servicesStore.Add(&service))
+	assert.NoError(t, k2c.servicesStore.Add(&service))
 	endpoints := newEndpoints(service, newSubsetWithOnePort("", 80, "10.0.0.1", "10.0.0.2"))
 
 	expectedDNSRecords := 2
-	assert.NoError(t, k2s.endpointsStore.Add(&endpoints))
-	k2s.newService(&service)
+	assert.NoError(t, k2c.endpointsStore.Add(&endpoints))
+	k2c.newService(&service)
 	assert.Equal(t, expectedDNSRecords, len(ec.writes))
 	endpoints.Subsets = append(endpoints.Subsets,
 		newSubsetWithOnePort("", 8080, "10.0.0.3", "10.0.0.4"),
 	)
 	expectedDNSRecords = 4
-	k2s.handleEndpointAdd(&endpoints)
+	k2c.handleEndpointAdd(&endpoints)
 
 	assert.Equal(t, expectedDNSRecords, len(ec.writes))
-	k2s.removeService(&service)
+	k2c.removeService(&service)
 	assert.Empty(t, ec.writes)
 }
 
@@ -321,17 +321,17 @@ func TestHeadlessServiceWithDelayedEndpointsAddition(t *testing.T) {
 	ec := &fakeConsulClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newHeadlessService(testNamespace, testService)
-	assert.NoError(t, k2s.servicesStore.Add(&service))
+	assert.NoError(t, k2c.servicesStore.Add(&service))
 	// Headless service DNS records should not be created since
 	// corresponding endpoints object doesn't exist.
-	k2s.newService(&service)
+	k2c.newService(&service)
 	assert.Empty(t, ec.writes)
 
 	// Add an endpoints object for the service.
 	endpoints := newEndpoints(service, newSubsetWithOnePort("", 80, "10.0.0.1", "10.0.0.2"), newSubsetWithOnePort("", 8080, "10.0.0.3", "10.0.0.4"))
 	// We expect 4 records.
 	expectedDNSRecords := 4
-	k2s.handleEndpointAdd(&endpoints)
+	k2c.handleEndpointAdd(&endpoints)
 	assert.Equal(t, expectedDNSRecords, len(ec.writes))
 }
 
@@ -346,7 +346,7 @@ func TestAddSinglePortService(t *testing.T) {
 	ec := &fakeConsulClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
-	k2s.newService(&service)
+	k2c.newService(&service)
 	expectedValue := getHostPort(&service)
 	assertDnsServiceEntryInEtcd(t, ec, testService, testNamespace, expectedValue)
 }
@@ -359,11 +359,11 @@ func TestUpdateSinglePortService(t *testing.T) {
 	ec := &fakeConsulClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
-	k2s.newService(&service)
+	k2c.newService(&service)
 	assert.Len(t, ec.writes, 1)
 	newService := service
 	newService.Spec.ClusterIP = "0.0.0.0"
-	k2s.updateService(&service, &newService)
+	k2c.updateService(&service, &newService)
 	expectedValue := getHostPort(&newService)
 	assertDnsServiceEntryInEtcd(t, ec, testService, testNamespace, expectedValue)
 }
@@ -377,10 +377,10 @@ func TestDeleteSinglePortService(t *testing.T) {
 	k2c := newKube2Consul(ec)
 	service := newService(testNamespace, testService, "1.2.3.4", "", 80)
 	// Add the service
-	k2s.newService(&service)
+	k2c.newService(&service)
 	assert.Len(t, ec.writes, 1)
 	// Delete the service
-	k2s.removeService(&service)
+	k2c.removeService(&service)
 	assert.Empty(t, ec.writes)
 }
 
@@ -394,7 +394,7 @@ func TestServiceWithNamePort(t *testing.T) {
 
 	// create service
 	service := newService(testNamespace, testService, "1.2.3.4", "http1", 80)
-	k2s.newService(&service)
+	k2c.newService(&service)
 	expectedValue := getHostPort(&service)
 	assertDnsServiceEntryInEtcd(t, ec, testService, testNamespace, expectedValue)
 	assertSRVEntryInEtcd(t, ec, "http1", "tcp", testService, testNamespace, 80, 1)
@@ -403,14 +403,14 @@ func TestServiceWithNamePort(t *testing.T) {
 	// update service
 	newService := service
 	newService.Spec.Ports[0].Name = "http2"
-	k2s.updateService(&service, &newService)
+	k2c.updateService(&service, &newService)
 	expectedValue = getHostPort(&newService)
 	assertDnsServiceEntryInEtcd(t, ec, testService, testNamespace, expectedValue)
 	assertSRVEntryInEtcd(t, ec, "http2", "tcp", testService, testNamespace, 80, 1)
 	assert.Len(t, ec.writes, 2)
 
 	// Delete the service
-	k2s.removeService(&service)
+	k2c.removeService(&service)
 	assert.Empty(t, ec.writes)
 }
 
@@ -433,33 +433,33 @@ func TestPodDns(t *testing.T) {
 
 	// create pod without ip address yet
 	pod := newPod(testNamespace, testPodName, "")
-	k2s.handlePodCreate(&pod)
+	k2c.handlePodCreate(&pod)
 	assert.Empty(t, ec.writes)
 
 	// create pod
 	pod = newPod(testNamespace, testPodName, testPodIP)
-	k2s.handlePodCreate(&pod)
+	k2c.handlePodCreate(&pod)
 	assertDnsPodEntryInEtcd(t, ec, sanitizedPodIP, testNamespace)
 
 	// update pod with same ip
 	newPod := pod
 	newPod.Status.PodIP = testPodIP
-	k2s.handlePodUpdate(&pod, &newPod)
+	k2c.handlePodUpdate(&pod, &newPod)
 	assertDnsPodEntryInEtcd(t, ec, sanitizedPodIP, testNamespace)
 
 	// update pod with different ip's
 	newPod = pod
 	newPod.Status.PodIP = "4.3.2.1"
-	k2s.handlePodUpdate(&pod, &newPod)
+	k2c.handlePodUpdate(&pod, &newPod)
 	assertDnsPodEntryInEtcd(t, ec, "4-3-2-1", testNamespace)
 	assertDnsPodEntryNotInEtcd(t, ec, "1-2-3-4", testNamespace)
 
 	// Delete the pod
-	k2s.handlePodDelete(&newPod)
+	k2c.handlePodDelete(&newPod)
 	assert.Empty(t, ec.writes)
 }
 
 func TestSanitizeIP(t *testing.T) {
 	expectedIP := "1-2-3-4"
-	assert.Equal(t, expectedIP, santizeIP("1.2.3.4"))
+	assert.Equal(t, expectedIP, sanitizeIP("1.2.3.4"))
 }

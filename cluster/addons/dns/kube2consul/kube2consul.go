@@ -22,6 +22,7 @@ package main
 import (
 	"fmt"
 	kcache "k8s.io/kubernetes/pkg/client/cache"
+	"strings"
 	"sync"
 	"time"
 )
@@ -51,6 +52,10 @@ type kube2consul struct {
 	mlock sync.Mutex
 }
 
+func sanitizeIP(ip string) string {
+	return strings.Replace(ip, ".", "-", -1)
+}
+
 func buildDNSNameString(labels ...string) string {
 	var res string
 	for _, label := range labels {
@@ -61,4 +66,25 @@ func buildDNSNameString(labels ...string) string {
 		}
 	}
 	return res
+}
+
+func (kc *kube2consul) newService(obj interface{}) {
+}
+
+func (ks *kube2consul) updateService(oldObj, newObj interface{}) {
+}
+
+func (kc *kube2consul) removeService(obj interface{}) {
+}
+
+func (kc *kube2consul) handleEndpointAdd(obj interface{}) {
+}
+
+func (ks *kube2consul) handlePodCreate(obj interface{}) {
+}
+
+func (ks *kube2consul) handlePodUpdate(old interface{}, new interface{}) {
+}
+
+func (ks *kube2consul) handlePodDelete(obj interface{}) {
 }
