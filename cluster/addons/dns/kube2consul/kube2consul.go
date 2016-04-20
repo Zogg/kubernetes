@@ -21,6 +21,7 @@ package main
 
 import (
 	"fmt"
+	consulApi "github.com/hashicorp/consul/api"
 	kcache "k8s.io/kubernetes/pkg/client/cache"
 	"strings"
 	"sync"
@@ -28,11 +29,7 @@ import (
 )
 
 type consulClient interface {
-	/*
-		Set(path, value string, ttl uint64) (*etcd.Response, error)
-		RawGet(key string, sort, recursive bool) (*etcd.RawResponse, error)
-		Delete(path string, recursive bool) (*etcd.Response, error)
-	*/
+	KV() *consulApi.KV
 }
 
 type kube2consul struct {
