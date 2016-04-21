@@ -20,13 +20,36 @@ limitations under the License.
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	etcd "github.com/coreos/go-etcd/etcd"
-	consulApi "github.com/hashicorp/consul/api"
-	kcache "k8s.io/kubernetes/pkg/client/cache"
+	"hash/fnv"
+	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+
+	etcd "github.com/coreos/go-etcd/etcd"
+	"github.com/golang/glog"
+	consulApi "github.com/hashicorp/consul/api"
+	skymsg "github.com/skynetservices/skydns/msg"
+	flag "github.com/spf13/pflag"
+	kapi "k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/endpoints"
+	"k8s.io/kubernetes/pkg/api/unversioned"
+	kcache "k8s.io/kubernetes/pkg/client/cache"
+	"k8s.io/kubernetes/pkg/client/restclient"
+	kclient "k8s.io/kubernetes/pkg/client/unversioned"
+	kclientcmd "k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
+	kframework "k8s.io/kubernetes/pkg/controller/framework"
+	kselector "k8s.io/kubernetes/pkg/fields"
+	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
+	utilflag "k8s.io/kubernetes/pkg/util/flag"
+	"k8s.io/kubernetes/pkg/util/validation"
+	"k8s.io/kubernetes/pkg/util/wait"
 )
 
 type etcdClient interface {
@@ -76,6 +99,22 @@ func (kc *kube2consul) newService(obj interface{}) {
 	}
 }
 
+// setupSignalHandlers runs a goroutine that waits on SIGINT or SIGTERM and logs it
+// before exiting.
+func setupSignalHandlers() {
+	sigChan := make(chan os.Signal)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// This program should always exit gracefully logging that it received
+	// either a SIGINT or SIGTERM. Since kube2sky is run in a container
+	// without a liveness probe as part of the kube-dns pod, it shouldn't
+	// restart unless the pod is deleted. If it restarts without logging
+	// anything it means something is seriously wrong.
+	// TODO: Remove once #22290 is fixed.
+	go func() {
+		glog.Fatalf("Received signal %s", <-sigChan)
+	}()
+}
+
 func (ks *kube2consul) updateService(oldObj, newObj interface{}) {
 }
 
@@ -92,4 +131,44 @@ func (ks *kube2consul) handlePodUpdate(old interface{}, new interface{}) {
 }
 
 func (ks *kube2consul) handlePodDelete(obj interface{}) {
+}
+
+func main() {
+	flag.CommandLine.SetNormalizeFunc(utilflag.WarnWordSepNormalizeFunc)
+	flag.Parse()
+	var err error
+	setupSignalHandlers()
+	// TODO: Validate input flags.
+	domain := *argDomain
+	if !strings.HasSuffix(domain, ".") {
+		domain = fmt.Sprintf("%s.", domain)
+	}
+	kc := kube2consul{
+		domain:              domain,
+		etcdMutationTimeout: *argEtcdMutationTimeout,
+	}
+	if kc.etcdClient, err = newEtcdClient(*argEtcdServer); err != nil {
+		glog.Fatalf("Failed to create etcd client - %v", err)
+	}
+
+	kubeClient, err := newKubeClient()
+	if err != nil {
+		glog.Fatalf("Failed to create a kubernetes client: %v", err)
+	}
+	// Wait synchronously for the Kubernetes service and add a DNS record for it.
+	kc.newService(waitForKubernetesService(kubeClient))
+	glog.Infof("Successfully added DNS record for Kubernetes service.")
+
+	kc.endpointsStore = watchEndpoints(kubeClient, &kc)
+	kc.servicesStore = watchForServices(kubeClient, &kc)
+	kc.podsStore = watchPods(kubeClient, &kc)
+
+	// We declare kube2sky ready when:
+	// 1. It has retrieved the Kubernetes master service from the apiserver. If this
+	//    doesn't happen skydns will fail its liveness probe assuming that it can't
+	//    perform any cluster local DNS lookups.
+	// 2. It has setup the 3 watches above.
+	// Once ready this container never flips to not-ready.
+	setupHealthzHandlers(&kc)
+	glog.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *healthzPort), nil))
 }
