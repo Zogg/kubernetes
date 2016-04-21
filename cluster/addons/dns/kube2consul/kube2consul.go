@@ -21,6 +21,7 @@ package main
 
 import (
 	"fmt"
+	etcd "github.com/coreos/go-etcd/etcd"
 	consulApi "github.com/hashicorp/consul/api"
 	kcache "k8s.io/kubernetes/pkg/client/cache"
 	"strings"
@@ -28,13 +29,16 @@ import (
 	"time"
 )
 
-type consulClient interface {
-	KV() *consulApi.KV
+type etcdClient interface {
+	Set(path, value string, ttl uint64) (*etcd.Response, error)
+	RawGet(key string, sort, recursive bool) (*etcd.RawResponse, error)
+	Delete(path string, recursive bool) (*etcd.Response, error)
 }
 
 type kube2consul struct {
-	// Consul client.
-	consulClient consulClient
+	// TODO: Abstract this so it allows consul or etcd K/V storages.
+	// Etcd client.
+	etcdClient etcdClient
 	// DNS domain name.
 	domain string
 	// Consul mutation timeout.
@@ -66,6 +70,10 @@ func buildDNSNameString(labels ...string) string {
 }
 
 func (kc *kube2consul) newService(obj interface{}) {
+	_, err := consulApi.NewClient(consulApi.DefaultConfig())
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (ks *kube2consul) updateService(oldObj, newObj interface{}) {

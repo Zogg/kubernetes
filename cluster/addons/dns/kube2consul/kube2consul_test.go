@@ -32,46 +32,46 @@ import (
 	"k8s.io/kubernetes/pkg/client/cache"
 )
 
-type fakeConsulClient struct {
-	// TODO: Convert this to real fs to better simulate consul behavior.
+type fakeEtcdClient struct {
+	// TODO: Convert this to real fs to better simulate etcd behavior.
 	writes map[string]string
 }
 
-func (fc *fakeConsulClient) Set(key, value string, ttl uint64) (*etcd.Response, error) {
-	fc.writes[key] = value
+func (ec *fakeEtcdClient) Set(key, value string, ttl uint64) (*etcd.Response, error) {
+	ec.writes[key] = value
 	return nil, nil
 }
 
-func (fc *fakeConsulClient) Delete(key string, recursive bool) (*etcd.Response, error) {
-	for p := range fc.writes {
+func (ec *fakeEtcdClient) Delete(key string, recursive bool) (*etcd.Response, error) {
+	for p := range ec.writes {
 		if (recursive && strings.HasPrefix(p, key)) || (!recursive && p == key) {
-			delete(fc.writes, p)
+			delete(ec.writes, p)
 		}
 	}
 	return nil, nil
 }
 
-func (fc *fakeConsulClient) RawGet(key string, sort, recursive bool) (*etcd.RawResponse, error) {
-	values := fc.Get(key)
+func (ec *fakeEtcdClient) RawGet(key string, sort, recursive bool) (*etcd.RawResponse, error) {
+	values := ec.Get(key)
 	if len(values) == 0 {
 		return &etcd.RawResponse{StatusCode: http.StatusNotFound}, nil
 	}
 	return &etcd.RawResponse{StatusCode: http.StatusOK}, nil
 }
 
-func (fc *fakeConsulClient) Get(key string) []string {
+func (ec *fakeEtcdClient) Get(key string) []string {
 	values := make([]string, 0, 10)
 	minSeparatorCount := 0
 	key = strings.ToLower(key)
-	for path := range fc.writes {
+	for path := range ec.writes {
 		if strings.HasPrefix(path, key) {
 			separatorCount := strings.Count(path, "/")
 			if minSeparatorCount == 0 || separatorCount < minSeparatorCount {
 				minSeparatorCount = separatorCount
 				values = values[:0]
-				values = append(values, fc.writes[path])
+				values = append(values, ec.writes[path])
 			} else if separatorCount == minSeparatorCount {
-				values = append(values, fc.writes[path])
+				values = append(values, ec.writes[path])
 			}
 		}
 	}
@@ -85,9 +85,10 @@ const (
 	podSubDomain     = "pod"
 )
 
-func newKube2Consul(cc consulClient) *kube2consul {
+func newKube2Consul(cc etcdClient) *kube2consul {
 	return &kube2consul{
-		consulClient:          cc,
+		// TODO: Abstract this so it allows consul or etcd clients.
+		etcdClient:            cc,
 		domain:                testDomain,
 		consulMutationTimeout: time.Second,
 		endpointsStore:        cache.NewStore(cache.MetaNamespaceKeyFunc),
@@ -121,7 +122,7 @@ func getHostPortFromString(data string) (*hostPort, error) {
 	return &res, err
 }
 
-func assertDnsServiceEntryInEtcd(t *testing.T, fc *fakeConsulClient, serviceName, namespace string, expectedHostPort *hostPort) {
+func assertDnsServiceEntryInEtcd(t *testing.T, fc *fakeEtcdClient, serviceName, namespace string, expectedHostPort *hostPort) {
 	key := getEtcdPathForA(serviceName, namespace, serviceSubDomain)
 	values := fc.Get(key)
 	//require.True(t, exists)
@@ -131,19 +132,19 @@ func assertDnsServiceEntryInEtcd(t *testing.T, fc *fakeConsulClient, serviceName
 	assert.Equal(t, expectedHostPort.Host, actualHostPort.Host)
 }
 
-func assertDnsPodEntryInEtcd(t *testing.T, fc *fakeConsulClient, podIP, namespace string) {
+func assertDnsPodEntryInEtcd(t *testing.T, fc *fakeEtcdClient, podIP, namespace string) {
 	key := getEtcdPathForA(podIP, namespace, podSubDomain)
 	values := fc.Get(key)
 	require.True(t, len(values) > 0, "entry not found.")
 }
 
-func assertDnsPodEntryNotInEtcd(t *testing.T, fc *fakeConsulClient, podIP, namespace string) {
+func assertDnsPodEntryNotInEtcd(t *testing.T, fc *fakeEtcdClient, podIP, namespace string) {
 	key := getEtcdPathForA(podIP, namespace, podSubDomain)
 	values := fc.Get(key)
 	require.True(t, len(values) == 0, "entry found.")
 }
 
-func assertSRVEntryInEtcd(t *testing.T, fc *fakeConsulClient, portName, protocol, serviceName, namespace string, expectedPortNumber, expectedEntriesCount int) {
+func assertSRVEntryInEtcd(t *testing.T, fc *fakeEtcdClient, portName, protocol, serviceName, namespace string, expectedPortNumber, expectedEntriesCount int) {
 	srvKey := getEtcdPathForSRV(portName, protocol, serviceName, namespace)
 	values := fc.Get(srvKey)
 	assert.Equal(t, expectedEntriesCount, len(values))
@@ -240,7 +241,7 @@ func TestHeadlessService(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
-	fc := &fakeConsulClient{make(map[string]string)}
+	fc := &fakeEtcdClient{make(map[string]string)}
 	k2c := newKube2Consul(fc)
 	service := newHeadlessService(testNamespace, testService)
 	assert.NoError(t, k2c.servicesStore.Add(&service))
@@ -260,7 +261,7 @@ func TestHeadlessServiceWithNamedPorts(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
-	ec := &fakeConsulClient{make(map[string]string)}
+	ec := &fakeEtcdClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newHeadlessService(testNamespace, testService)
 	assert.NoError(t, k2c.servicesStore.Add(&service))
@@ -292,7 +293,7 @@ func TestHeadlessServiceEndpointsUpdate(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
-	ec := &fakeConsulClient{make(map[string]string)}
+	ec := &fakeEtcdClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newHeadlessService(testNamespace, testService)
 	assert.NoError(t, k2c.servicesStore.Add(&service))
@@ -318,7 +319,7 @@ func TestHeadlessServiceWithDelayedEndpointsAddition(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
-	ec := &fakeConsulClient{make(map[string]string)}
+	ec := &fakeEtcdClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newHeadlessService(testNamespace, testService)
 	assert.NoError(t, k2c.servicesStore.Add(&service))
@@ -343,7 +344,7 @@ func TestAddSinglePortService(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
-	ec := &fakeConsulClient{make(map[string]string)}
+	ec := &fakeEtcdClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
 	k2c.newService(&service)
@@ -356,7 +357,7 @@ func TestUpdateSinglePortService(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
-	ec := &fakeConsulClient{make(map[string]string)}
+	ec := &fakeEtcdClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
 	k2c.newService(&service)
@@ -373,7 +374,7 @@ func TestDeleteSinglePortService(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
-	ec := &fakeConsulClient{make(map[string]string)}
+	ec := &fakeEtcdClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 	service := newService(testNamespace, testService, "1.2.3.4", "", 80)
 	// Add the service
@@ -389,7 +390,7 @@ func TestServiceWithNamePort(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
-	ec := &fakeConsulClient{make(map[string]string)}
+	ec := &fakeEtcdClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 
 	// create service
@@ -428,7 +429,7 @@ func TestPodDns(t *testing.T) {
 		testNamespace  = "default"
 		testPodName    = "testPod"
 	)
-	ec := &fakeConsulClient{make(map[string]string)}
+	ec := &fakeEtcdClient{make(map[string]string)}
 	k2c := newKube2Consul(ec)
 
 	// create pod without ip address yet
