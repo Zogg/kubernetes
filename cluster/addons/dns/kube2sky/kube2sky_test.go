@@ -417,6 +417,7 @@ func TestServiceWithNamePort(t *testing.T) {
 	assert.Empty(t, ec.writes)
 }
 
+// TODO: move this to dns/bridge_test
 func TestBuildDNSName(t *testing.T) {
 	expectedDNSName := "name.ns.svc.cluster.local."
 	assert.Equal(t, expectedDNSName, bridge.BuildDNSNameString("local.", "cluster", "svc", "ns", "name"))
@@ -462,6 +463,7 @@ func TestPodDns(t *testing.T) {
 	assert.Empty(t, ec.writes)
 }
 
+// TODO: Move this to dns/bridge_test
 func TestSanitizeIP(t *testing.T) {
 	expectedIP := "1-2-3-4"
 	assert.Equal(t, expectedIP, bridge.SanitizeIP("1.2.3.4"))

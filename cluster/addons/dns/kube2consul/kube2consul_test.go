@@ -415,13 +415,6 @@ func TestServiceWithNamePort(t *testing.T) {
 	assert.Empty(t, ec.writes)
 }
 
-func TestBuildDNSName(t *testing.T) {
-	expectedDNSName := "name.ns.svc.cluster.local."
-	assert.Equal(t, expectedDNSName, buildDNSNameString("local.", "cluster", "svc", "ns", "name"))
-	newExpectedDNSName := "00.name.ns.svc.cluster.local."
-	assert.Equal(t, newExpectedDNSName, buildDNSNameString(expectedDNSName, "00"))
-}
-
 func TestPodDns(t *testing.T) {
 	const (
 		testPodIP      = "1.2.3.4"
@@ -458,9 +451,4 @@ func TestPodDns(t *testing.T) {
 	// Delete the pod
 	k2c.handlePodDelete(&newPod)
 	assert.Empty(t, ec.writes)
-}
-
-func TestSanitizeIP(t *testing.T) {
-	expectedIP := "1-2-3-4"
-	assert.Equal(t, expectedIP, sanitizeIP("1.2.3.4"))
 }
