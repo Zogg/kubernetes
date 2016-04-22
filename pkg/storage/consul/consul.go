@@ -3,6 +3,7 @@ package consul
 import {
   "errors"
   //"time"
+  "reflect"
   
   "k8s.io/kubernetes/pkg/conversion"
   "k8s.io/kbuernetes/pkg/runtime"
@@ -98,11 +99,7 @@ func (s *ConsulKvStorage) Create(ctx context.Context, key string, obj, out runti
     ModifyIndex:    0,    // explicitly set to indicate Create-Only behavior
     // TODO: TTL, if and when this functionality becomes available
   }
-  if out == nil {
-    succeeded, _, err := s.ConsulKv.CAS( kv, nil )
-  } else {
-    succeeded, _, err := s.ConsulKv.AcquireCAS( kv, 
-  }
+  succeeded, _, err := s.ConsulKv.CAS_v2( &kv, nil )
   // metrics.RecordStuff
   trace.Step("Object created")
   if err != nil {
@@ -112,7 +109,7 @@ func (s *ConsulKvStorage) Create(ctx context.Context, key string, obj, out runti
     if _, err := conversion.EnforcePtr(out); err != nil {
       panic("unable to convert output object to pointer")
     }
-    _, _, err = s.extractObj(metaResponse, out, false, false)
+    err = s.extractObj(&kv, err, out, false)
   }
   return err
 }
@@ -122,7 +119,64 @@ func (s *ConsulKvStorage) Set(ctx context.Context, key string, obj, out runtime.
 }
 
 func (s *ConsulKvStorage) Delete(ctx context.Context, key string, out runtime.Object, preconditions *storage.Preconditions) error {
-  
+  if ctx == nil {
+    glog.Errorf("Context is nil")
+  }
+  key = s.prefixKey(key)
+  v, err := conversion.EnforcePtr(out)
+  if err != nil {
+  	panic("unable to convert output object to pointer")
+  }
+  if preconditions != nil {
+	obj := reflect.New(v.Type()).Interface().(runtime.Object)
+  }
+  // kv declared outside of the spin-loop so that we can decode subsequent successful Gets
+  // in the event that another client deletes our key before we do.. this value is possibly
+  // lacking certified freshness
+  var kv consulapi.KVPair
+  // spin cycle Get;DeleteCAS to ensure the returned value is the exact value prior to deletion
+  // TODO: perhaps a timeout or spincount would be wise here
+  for {
+  	// empty QueryOptions is explicitly setting AllowStale to false
+  	kv, _, err := s.ConsulKv.Get( key, &consulapi.QueryOptions{} )
+  	if err != nil {
+  		if isErrNotFound( err ) {
+  			// if we have previously succeeded in getting a value, but not deleting it
+  			// then decode the most recently gotten value (unless we have already done
+  			// so in order to test for preconditions)
+  			if len(kv.Value) != 0 && preconditions == nil {
+  				err = s.extractObj(&kv, err, out, false)
+  			}
+  		}
+  		return translateErrConsulKvToStorage(err, key, 0)
+  	}
+  	if preconditions != nil {
+  		err = s.extractObj(&kv, err, out, false)
+  		if err != nil {
+  			return translateErrConsulKvToStorage(err, key, 0)
+  		}
+  		if err := checkPreconditions(preconditions, obj); err != nil {
+  			return translateErrConsulKvToStorage(err, key, 0)
+  		}
+  	}
+  	succeeded, _, err := s.ConsulKv.DeleteCAS(&kv,nil)
+  	if err != nil {
+  		if isErrNotFound( err ) {
+  			// if we have previously succeeded in getting a value, but not deleting it
+  			// then decode the most recently gotten value (unless we have already done
+  			// so in order to test for preconditions)
+  			if len(kv.Value) != 0 && preconditions == nil {
+  				err = s.extractObj(&kv, err, out, false)
+  			}
+  		}
+  		return translateErrConsulKvToStorage(err, key, 0)
+  	}
+  	if !succeeded {
+  		glog.Infof("delection of %s failed because of a conflict, going to retry", key)
+  	} else {
+  		return translateErrConsulKvToStorage(err, key, 0)
+  	}
+  }
 }
 
 func (s *ConsulKvStorage) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
@@ -134,7 +188,16 @@ func (s *ConsulKvStorage) WatchList(ctx context.Context, key string, resourceVer
 }
 
 func (s *ConsulKvStorage) Get(ctx context.Context, key string, objPtr runtime.Object, ignoreNotFound bool) error {
-  
+  if ctx == nil {
+	glog.Errorf("Context is nil")
+  }
+  key = h.prefixEtcdKey(key)
+  kv, _, err := c.ConsulKv.Get(key, &consulapi.QueryOptions{})
+  if err != nil {
+  	return translateErrConsulKvToStorage(err, key, 0)
+  }
+  err = s.extractObj(&kv, err, out, false)
+  return translateErrConsulKvToStorage(err, key, 0)
 }
 
 func (s *ConsulKvStorage) GetToList(ctx context.Context, key string, filter storage.FilterFunc, listObj runtime.Object) error {
@@ -147,6 +210,31 @@ func (s *ConsulKvStorage) List(ctx context.Context, key string, resourceVersion 
 
 func (s *ConsulKvStorage) GuaranteedUpdate(ctx context.Context, key string, ptrToType runtime.Object, ignoreNotFound bool, preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc) error {
   
+}
+
+func (s *ConsulKvStorage) extractObj(kv *consulapi.KVPair, inErr error, objPtr runtime.Object, ignoreNotFound bool) error {
+	if inErr != nil || len(kv.Value) == 0 {
+		if ignoreNotFound {
+			v, err := conversion.EnforcePtr(objPtr)
+			if err != nil {
+				return err
+			}
+			v.Set(reflect.Zero(v.Type()))
+			return nil
+		} else if inErr != nil {
+			return inErr
+		}
+		return fmt.Errorf("unable to locate value in response for key: %#v", kv)
+	}
+	out, gvk, err := h.codec.Decode(kv.Value,objPtr)
+	if err != nil {
+		return err
+	}
+	if out != objPtr {
+		return fmt.Errorf("unable to decode object %s into %v", gvk.String(), reflect.TypeOf(objPtr))
+	}
+	_ = h.versioner.UpdateObject(objPtr, kv.ModifyIndex)
+	return err
 }
 
 
