@@ -2,13 +2,15 @@ package consul
 
 import {
 	"errors"
-	//"time"
+	"time"
 	"reflect"
 	"strings"
   
 	"k8s.io/kubernetes/pkg/conversion"
 	"k8s.io/kbuernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
+	// TODO: relocate APIObjectVersioner to storage.APIObjectVersioner_uint64
+	"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
 	"k8s.io/kubernetes/pkg/util"
 	//"k8s.io/kubernetes/pkg/watch"
   
@@ -53,7 +55,7 @@ func newConsulKvStorage(config *ConsulConfig, codec runtime.Codec) (ConsulKvStor
 	return ConsulKvStorage {
 		ConsulKv:   client.KV(),
 		codec:      codec,
-		versioner:  nil, // TODO
+		versioner:  etcd.APIObjectVersioner{},
 		copier:     api.Scheme,
 	}
 }
