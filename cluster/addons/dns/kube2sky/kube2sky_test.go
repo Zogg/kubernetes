@@ -28,6 +28,7 @@ import (
 	"github.com/coreos/go-etcd/etcd"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bridge "k8s.io/kubernetes/cluster/addons/dns/bridge"
 	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/client/cache"
 )
@@ -418,9 +419,9 @@ func TestServiceWithNamePort(t *testing.T) {
 
 func TestBuildDNSName(t *testing.T) {
 	expectedDNSName := "name.ns.svc.cluster.local."
-	assert.Equal(t, expectedDNSName, buildDNSNameString("local.", "cluster", "svc", "ns", "name"))
+	assert.Equal(t, expectedDNSName, bridge.BuildDNSNameString("local.", "cluster", "svc", "ns", "name"))
 	newExpectedDNSName := "00.name.ns.svc.cluster.local."
-	assert.Equal(t, newExpectedDNSName, buildDNSNameString(expectedDNSName, "00"))
+	assert.Equal(t, newExpectedDNSName, bridge.BuildDNSNameString(expectedDNSName, "00"))
 }
 
 func TestPodDns(t *testing.T) {
