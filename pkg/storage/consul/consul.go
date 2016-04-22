@@ -4,6 +4,7 @@ import {
 	"errors"
 	//"time"
 	"reflect"
+	"strings"
   
 	"k8s.io/kubernetes/pkg/conversion"
 	"k8s.io/kbuernetes/pkg/runtime"
@@ -238,12 +239,86 @@ func (s *ConsulKvStorage) Get(ctx context.Context, key string, objPtr runtime.Ob
 	return toStorageErr(err, key, 0)
 }
 
+type keyFilterFunc func(key string) bool
+
 func (s *ConsulKvStorage) GetToList(ctx context.Context, key string, filter storage.FilterFunc, listObj runtime.Object) error {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	key = s.prefixKey(key)
+	// ensure that our path is terminated with a / to make it a directory
+	if !HasSufix( key, "/" ) {
+		key = key + "/"
+	}
 	
+	// create a filter that will omit deep finds
+	myLastIndex = strings.LastIndex(key, "/")
+	fnKeyFilter := func(key string) bool {
+		return myLastIndex == strings.LastIndex(key, "/")
+	}
+	
+	return listInternal("GetToList ", key, fnKeyFilter, filter, listObj)
 }
 
 func (s *ConsulKvStorage) List(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc, listObj runtime.Object) error {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	key = s.prefixKey(key)
+	return listInternal("List ", key, func(string) bool {return true}, filter, listObj)
+}
+
+func (s *ConsulKvStorage) listInternal(fnName string, key string, keyFilter keyFilterFunc, filter storage.FilterFunc, listObj runtime.Object) error { 
+	trace := util.NewTrace(fnName + getTypeName(listObj))
+	listPtr, err := meta.GetItemsPtr(listObj)
+	if err != nil {
+		return err
+	}
+	v, err := conversion.EnforcePtr(listPtr)
+	if err != nil || v.Kind() != reflect.Slice {
+		// This should not happen at runtime.
+		panic("need ptr to slice")
+	}
+	startTime := time.Now()
+	trace.Step("About to read consul kv list")
+
+	kvlist, _, err := s.ConsulKv.List(key, nil);
 	
+	// TODO: record metrics
+	if err != nil {
+		return toStorageErr(err, key, 0)
+	}
+	
+	// unlike etcd, reads are not rafted, so they don't get an index of their own
+	// so in order to version the resulting list consistantly, we apply the index
+	// of the most recent member 
+	maxIndex := uint64(0)
+	
+	for _, kv := range kvlist {
+		if keyFilter(kv.Key) {
+			obj, _, err := s.codec.Decode(kv.Value, nil, reflect.New(v.Type().Elem()).Interface().(runtime.Object))
+			if err != nil {
+				return err
+			}
+		
+			// being unable to set the version does not prevent the object from being extracted
+			_ = s.versioner.UpdateObject(obj, nil, kv.ModifyIndex)
+			if filter(obj) {
+				v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
+			}
+			// TODO: contemplate all the possible meanings of the word 'cache'
+			//if kv.ModifyIndex != 0 {
+			//	s.addToCache(kv.ModifyIndex, obj)
+			//}
+			if maxIndex < kv.ModifyIndex {
+				maxIndex = kv.ModifyIndex
+			}
+		}
+	}
+	if err := s.versioner.UpdateList(listObj, maxIndex); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *ConsulKvStorage) GuaranteedUpdate(ctx context.Context, key string, ptrToType runtime.Object, ignoreNotFound bool, preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc) error {
@@ -264,7 +339,7 @@ func (s *ConsulKvStorage) extractObj(kv *consulapi.KVPair, inErr error, objPtr r
 		}
 		return fmt.Errorf("unable to locate value in response for key: %#v", kv)
 	}
-	out, gvk, err := s.codec.Decode(kv.Value,objPtr)
+	out, gvk, err := s.codec.Decode(kv.Value, nil, objPtr)
 	if err != nil {
 		return err
 	}
