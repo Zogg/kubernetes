@@ -464,5 +464,5 @@ func TestPodDns(t *testing.T) {
 
 func TestSanitizeIP(t *testing.T) {
 	expectedIP := "1-2-3-4"
-	assert.Equal(t, expectedIP, santizeIP("1.2.3.4"))
+	assert.Equal(t, expectedIP, bridge.SanitizeIP("1.2.3.4"))
 }

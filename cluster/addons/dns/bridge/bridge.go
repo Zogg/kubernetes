@@ -19,6 +19,7 @@ package bridge
 import (
 	"fmt"
 	"github.com/golang/glog"
+	"hash/fnv"
 	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/client/restclient"
@@ -64,6 +65,16 @@ func expandKubeMasterURL(argKubeMasterURL *string) (string, error) {
 		return "", fmt.Errorf("invalid --kube-master-url specified %s", *argKubeMasterURL)
 	}
 	return parsedURL.String(), nil
+}
+
+func SanitizeIP(ip string) string {
+	return strings.Replace(ip, ".", "-", -1)
+}
+
+func GetHash(text string) string {
+	h := fnv.New32a()
+	h.Write([]byte(text))
+	return fmt.Sprintf("%x", h.Sum32())
 }
 
 // TODO: evaluate using pkg/client/clientcmd

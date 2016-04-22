@@ -22,7 +22,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"net/http"
 	"os"
 	"os/signal"
@@ -167,7 +166,7 @@ func (ks *kube2sky) generateRecordsForHeadlessService(subdomain string, e *kapi.
 				return err
 			}
 			recordValue := string(b)
-			recordLabel := getHash(recordValue)
+			recordLabel := bridge.GetHash(recordValue)
 			if serializedPodHostnames := e.Annotations[endpoints.PodHostnamesAnnotation]; len(serializedPodHostnames) > 0 {
 				podHostnames := map[string]endpoints.HostRecord{}
 				err := json.Unmarshal([]byte(serializedPodHostnames), &podHostnames)
@@ -250,7 +249,7 @@ func (ks *kube2sky) handlePodCreate(obj interface{}) {
 	if e, ok := obj.(*kapi.Pod); ok {
 		// If the pod ip is not yet available, do not attempt to create.
 		if e.Status.PodIP != "" {
-			name := bridge.BuildDNSNameString(ks.domain, podSubdomain, e.Namespace, santizeIP(e.Status.PodIP))
+			name := bridge.BuildDNSNameString(ks.domain, podSubdomain, e.Namespace, bridge.SanitizeIP(e.Status.PodIP))
 			ks.mutateEtcdOrDie(func() error { return ks.generateRecordsForPod(name, e) })
 		}
 	}
@@ -276,7 +275,7 @@ func (ks *kube2sky) handlePodUpdate(old interface{}, new interface{}) {
 func (ks *kube2sky) handlePodDelete(obj interface{}) {
 	if e, ok := obj.(*kapi.Pod); ok {
 		if e.Status.PodIP != "" {
-			name := bridge.BuildDNSNameString(ks.domain, podSubdomain, e.Namespace, santizeIP(e.Status.PodIP))
+			name := bridge.BuildDNSNameString(ks.domain, podSubdomain, e.Namespace, bridge.SanitizeIP(e.Status.PodIP))
 			ks.mutateEtcdOrDie(func() error { return ks.removeDNS(name) })
 		}
 	}
@@ -288,7 +287,7 @@ func (ks *kube2sky) generateRecordsForPod(subdomain string, service *kapi.Pod) e
 		return err
 	}
 	recordValue := string(b)
-	recordLabel := getHash(recordValue)
+	recordLabel := bridge.GetHash(recordValue)
 	recordKey := bridge.BuildDNSNameString(subdomain, recordLabel)
 
 	glog.V(2).Infof("Setting DNS record: %v -> %q, with recordKey: %v\n", subdomain, recordValue, recordKey)
@@ -305,7 +304,7 @@ func (ks *kube2sky) generateRecordsForPortalService(subdomain string, service *k
 		return err
 	}
 	recordValue := string(b)
-	recordLabel := getHash(recordValue)
+	recordLabel := bridge.GetHash(recordValue)
 	recordKey := bridge.BuildDNSNameString(subdomain, recordLabel)
 
 	glog.V(2).Infof("Setting DNS record: %v -> %q, with recordKey: %v\n", subdomain, recordValue, recordKey)
@@ -324,10 +323,6 @@ func (ks *kube2sky) generateRecordsForPortalService(subdomain string, service *k
 		}
 	}
 	return nil
-}
-
-func santizeIP(ip string) string {
-	return strings.Replace(ip, ".", "-", -1)
 }
 
 func (ks *kube2sky) generateSRVRecord(subdomain, portSegment, recordName, cName string, portNumber int) error {
@@ -499,12 +494,6 @@ func watchPods(kubeClient *kclient.Client, ks *kube2sky) kcache.Store {
 
 	go eController.Run(wait.NeverStop)
 	return eStore
-}
-
-func getHash(text string) string {
-	h := fnv.New32a()
-	h.Write([]byte(text))
-	return fmt.Sprintf("%x", h.Sum32())
 }
 
 // waitForKubernetesService waits for the "Kuberntes" master service.
