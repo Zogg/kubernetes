@@ -692,12 +692,12 @@
 		{
 			"ImportPath": "github.com/emicklei/go-restful/log",
 			"Comment": "v1.2",
-			"Rev": "777bb3f19bcafe2575ffb2a3e46af92509ae9594"
+			"Rev": "496d495156da218b9912f03dfa7df7f80fbd8cc3"
 		},
 		{
 			"ImportPath": "github.com/emicklei/go-restful/swagger",
 			"Comment": "v1.2",
-			"Rev": "777bb3f19bcafe2575ffb2a3e46af92509ae9594"
+			"Rev": "496d495156da218b9912f03dfa7df7f80fbd8cc3"
 		},
 		{
 			"ImportPath": "github.com/emicklei/go-restful/log",
