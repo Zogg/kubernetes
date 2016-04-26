@@ -37,6 +37,8 @@ import (
 const (
 	// Maximum number of attempts to connect to etcd server.
 	maxConnectAttempts = 12
+	// The name of the "master" Kubernetes Service.
+	kubernetesSvcName = "kubernetes"
 )
 
 func BuildDNSNameString(labels ...string) string {
@@ -163,4 +165,26 @@ func NewEtcdClient(etcdServer string) (*etcd.Client, error) {
 		return nil, fmt.Errorf("Timed out after %s waiting for at least 1 synchronized etcd server in the cluster. Error: %v", timeout, err)
 	}
 	return client, nil
+}
+
+// waitForKubernetesService waits for the "Kuberntes" master service.
+// Since the health probe on the kube2sky container is essentially an nslookup
+// of this service, we cannot serve any DNS records if it doesn't show up.
+// Once the Service is found, we start replying on this containers readiness
+// probe endpoint.
+func WaitForKubernetesService(client *kclient.Client) (svc *kapi.Service) {
+	name := fmt.Sprintf("%v/%v", kapi.NamespaceDefault, kubernetesSvcName)
+	glog.Infof("Waiting for service: %v", name)
+	var err error
+	servicePollInterval := 1 * time.Second
+	for {
+		svc, err = client.Services(kapi.NamespaceDefault).Get(kubernetesSvcName)
+		if err != nil || svc == nil {
+			glog.Infof("Ignoring error while waiting for service %v: %v. Sleeping %v before retrying.", name, err, servicePollInterval)
+			time.Sleep(servicePollInterval)
+			continue
+		}
+		break
+	}
+	return
 }

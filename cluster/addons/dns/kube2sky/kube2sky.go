@@ -455,28 +455,6 @@ func watchPods(kubeClient *kclient.Client, ks *kube2sky) kcache.Store {
 	return eStore
 }
 
-// waitForKubernetesService waits for the "Kuberntes" master service.
-// Since the health probe on the kube2sky container is essentially an nslookup
-// of this service, we cannot serve any DNS records if it doesn't show up.
-// Once the Service is found, we start replying on this containers readiness
-// probe endpoint.
-func waitForKubernetesService(client *kclient.Client) (svc *kapi.Service) {
-	name := fmt.Sprintf("%v/%v", kapi.NamespaceDefault, kubernetesSvcName)
-	glog.Infof("Waiting for service: %v", name)
-	var err error
-	servicePollInterval := 1 * time.Second
-	for {
-		svc, err = client.Services(kapi.NamespaceDefault).Get(kubernetesSvcName)
-		if err != nil || svc == nil {
-			glog.Infof("Ignoring error while waiting for service %v: %v. Sleeping %v before retrying.", name, err, servicePollInterval)
-			time.Sleep(servicePollInterval)
-			continue
-		}
-		break
-	}
-	return
-}
-
 // setupSignalHandlers runs a goroutine that waits on SIGINT or SIGTERM and logs it
 // before exiting.
 func setupSignalHandlers() {
@@ -523,7 +501,7 @@ func main() {
 		glog.Fatalf("Failed to create a kubernetes client: %v", err)
 	}
 	// Wait synchronously for the Kubernetes service and add a DNS record for it.
-	ks.newService(waitForKubernetesService(kubeClient))
+	ks.newService(bridge.WaitForKubernetesService(kubeClient))
 	glog.Infof("Successfully added DNS record for Kubernetes service.")
 
 	ks.endpointsStore = watchEndpoints(kubeClient, &ks)
