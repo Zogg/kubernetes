@@ -105,6 +105,54 @@ func (kc *kube2consul) newService(obj interface{}) {
 	}
 }
 
+func newConsulClient(consulAgent string) (*consulApi.Client, error) {
+	var (
+		client *consulApi.Client
+		err    error
+	)
+
+	consulConfig := consulApi.DefaultConfig()
+	consulAgentUrl, err := url.Parse(consulAgent)
+	if err != nil {
+		glog.Infof("Error parsing Consul url")
+		return nil, err
+	}
+
+	if consulAgentUrl.Host != "" {
+		consulConfig.Address = consulAgentUrl.Host
+	}
+
+	if consulAgentUrl.Scheme != "" {
+		consulConfig.Scheme = consulAgentUrl.Scheme
+	}
+
+	client, err = consulApi.NewClient(consulConfig)
+	if err != nil {
+		glog.Infof("Error creating Consul client")
+		return nil, err
+	}
+
+	for attempt := 1; attempt <= maxConnectAttempts; attempt++ {
+		if _, err = client.Agent().Self(); err == nil {
+			break
+		}
+
+		if attempt == maxConnectAttempts {
+			break
+		}
+
+		glog.Infof("[Attempt: %d] Attempting access to Consul after 5 second sleep", attempt)
+		time.Sleep(5 * time.Second)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Consul agent: %v, error: %v", consulAgent, err)
+	}
+	glog.Infof("Consul agent found: %v", consulAgent)
+
+	return client, nil
+}
+
 // setupSignalHandlers runs a goroutine that waits on SIGINT or SIGTERM and logs it
 // before exiting.
 func setupSignalHandlers() {
