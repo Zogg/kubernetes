@@ -18,6 +18,7 @@ package bridge
 
 import (
 	"fmt"
+	etcd "github.com/coreos/go-etcd/etcd"
 	"github.com/golang/glog"
 	"hash/fnv"
 	kapi "k8s.io/kubernetes/pkg/api"
@@ -25,9 +26,17 @@ import (
 	"k8s.io/kubernetes/pkg/client/restclient"
 	kclient "k8s.io/kubernetes/pkg/client/unversioned"
 	kclientcmd "k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
+	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
+	"k8s.io/kubernetes/pkg/util/wait"
 	"net/url"
 	"os"
 	"strings"
+	"time"
+)
+
+const (
+	// Maximum number of attempts to connect to etcd server.
+	maxConnectAttempts = 12
 )
 
 func BuildDNSNameString(labels ...string) string {
@@ -116,4 +125,42 @@ func NewKubeClient(argKubeMasterURL *string, argKubecfgFile *string) (*kclient.C
 	glog.Infof("Using %s for kubernetes master", config.Host)
 	glog.Infof("Using kubernetes API %v", config.GroupVersion)
 	return kclient.New(config)
+}
+
+func NewEtcdClient(etcdServer string) (*etcd.Client, error) {
+	var (
+		client *etcd.Client
+		err    error
+	)
+	for attempt := 1; attempt <= maxConnectAttempts; attempt++ {
+		if _, err = etcdutil.GetEtcdVersion(etcdServer); err == nil {
+			break
+		}
+		if attempt == maxConnectAttempts {
+			break
+		}
+		glog.Infof("[Attempt: %d] Attempting access to etcd after 5 second sleep", attempt)
+		time.Sleep(5 * time.Second)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to etcd server: %v, error: %v", etcdServer, err)
+	}
+	glog.Infof("Etcd server found: %v", etcdServer)
+
+	// loop until we have > 0 machines && machines[0] != ""
+	poll, timeout := 1*time.Second, 10*time.Second
+	if err := wait.Poll(poll, timeout, func() (bool, error) {
+		if client = etcd.NewClient([]string{etcdServer}); client == nil {
+			return false, fmt.Errorf("etcd.NewClient returned nil")
+		}
+		client.SyncCluster()
+		machines := client.GetCluster()
+		if len(machines) == 0 || len(machines[0]) == 0 {
+			return false, nil
+		}
+		return true, nil
+	}); err != nil {
+		return nil, fmt.Errorf("Timed out after %s waiting for at least 1 synchronized etcd server in the cluster. Error: %v", timeout, err)
+	}
+	return client, nil
 }

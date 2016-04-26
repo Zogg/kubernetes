@@ -41,7 +41,6 @@ import (
 	kclient "k8s.io/kubernetes/pkg/client/unversioned"
 	kframework "k8s.io/kubernetes/pkg/controller/framework"
 	kselector "k8s.io/kubernetes/pkg/fields"
-	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
 	utilflag "k8s.io/kubernetes/pkg/util/flag"
 	"k8s.io/kubernetes/pkg/util/validation"
 	"k8s.io/kubernetes/pkg/util/wait"
@@ -60,8 +59,6 @@ var (
 )
 
 const (
-	// Maximum number of attempts to connect to etcd server.
-	maxConnectAttempts = 12
 	// Resync period for the kube controller loop.
 	resyncPeriod = 30 * time.Minute
 	// A subdomain added to the user specified domain for all services.
@@ -407,44 +404,6 @@ func (ks *kube2sky) updateService(oldObj, newObj interface{}) {
 	ks.newService(newObj)
 }
 
-func newEtcdClient(etcdServer string) (*etcd.Client, error) {
-	var (
-		client *etcd.Client
-		err    error
-	)
-	for attempt := 1; attempt <= maxConnectAttempts; attempt++ {
-		if _, err = etcdutil.GetEtcdVersion(etcdServer); err == nil {
-			break
-		}
-		if attempt == maxConnectAttempts {
-			break
-		}
-		glog.Infof("[Attempt: %d] Attempting access to etcd after 5 second sleep", attempt)
-		time.Sleep(5 * time.Second)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to etcd server: %v, error: %v", etcdServer, err)
-	}
-	glog.Infof("Etcd server found: %v", etcdServer)
-
-	// loop until we have > 0 machines && machines[0] != ""
-	poll, timeout := 1*time.Second, 10*time.Second
-	if err := wait.Poll(poll, timeout, func() (bool, error) {
-		if client = etcd.NewClient([]string{etcdServer}); client == nil {
-			return false, fmt.Errorf("etcd.NewClient returned nil")
-		}
-		client.SyncCluster()
-		machines := client.GetCluster()
-		if len(machines) == 0 || len(machines[0]) == 0 {
-			return false, nil
-		}
-		return true, nil
-	}); err != nil {
-		return nil, fmt.Errorf("Timed out after %s waiting for at least 1 synchronized etcd server in the cluster. Error: %v", timeout, err)
-	}
-	return client, nil
-}
-
 func watchForServices(kubeClient *kclient.Client, ks *kube2sky) kcache.Store {
 	serviceStore, serviceController := kframework.NewInformer(
 		createServiceLW(kubeClient),
@@ -555,7 +514,7 @@ func main() {
 		domain:              domain,
 		etcdMutationTimeout: *argEtcdMutationTimeout,
 	}
-	if ks.etcdClient, err = newEtcdClient(*argEtcdServer); err != nil {
+	if ks.etcdClient, err = bridge.NewEtcdClient(*argEtcdServer); err != nil {
 		glog.Fatalf("Failed to create etcd client - %v", err)
 	}
 
