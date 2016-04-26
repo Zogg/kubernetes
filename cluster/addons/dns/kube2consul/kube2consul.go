@@ -39,6 +39,7 @@ import (
 	kclient "k8s.io/kubernetes/pkg/client/unversioned"
 	kframework "k8s.io/kubernetes/pkg/controller/framework"
 	utilflag "k8s.io/kubernetes/pkg/util/flag"
+	"k8s.io/kubernetes/pkg/util/wait"
 	"net/url"
 )
 
@@ -68,7 +69,11 @@ type etcdClient interface {
 type kube2consul struct {
 	// TODO: Abstract this so it allows consul or etcd K/V storages.
 	// Etcd client.
+	// TODO: remove.
 	etcdClient etcdClient
+
+	// Consul client.
+	consulClient *consulApi.Client
 	// DNS domain name.
 	domain string
 	// Etcd mutation timeout.
@@ -190,7 +195,7 @@ func (ks *kube2consul) handlePodDelete(obj interface{}) {
 
 func watchEndpoints(kubeClient *kclient.Client, k2c *kube2consul) kcache.Store {
 	eStore, eController := kframework.NewInformer(
-		createEndpointsLW(kubeClient),
+		bridge.CreateEndpointsLW(kubeClient),
 		&kapi.Endpoints{},
 		resyncPeriod,
 		kframework.ResourceEventHandlerFuncs{
@@ -204,6 +209,46 @@ func watchEndpoints(kubeClient *kclient.Client, k2c *kube2consul) kcache.Store {
 
 	go eController.Run(wait.NeverStop)
 	return eStore
+}
+
+func watchForServices(kubeClient *kclient.Client, kc *kube2consul) kcache.Store {
+	serviceStore, serviceController := kframework.NewInformer(
+		bridge.CreateServiceLW(kubeClient),
+		&kapi.Service{},
+		resyncPeriod,
+		kframework.ResourceEventHandlerFuncs{
+			AddFunc:    kc.newService,
+			DeleteFunc: kc.removeService,
+			UpdateFunc: kc.updateService,
+		},
+	)
+	go serviceController.Run(wait.NeverStop)
+	return serviceStore
+}
+
+func watchPods(kubeClient *kclient.Client, kc *kube2consul) kcache.Store {
+	eStore, eController := kframework.NewInformer(
+		bridge.CreateEndpointsPodLW(kubeClient),
+		&kapi.Pod{},
+		resyncPeriod,
+		kframework.ResourceEventHandlerFuncs{
+			AddFunc: kc.handlePodCreate,
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				kc.handlePodUpdate(oldObj, newObj)
+			},
+			DeleteFunc: kc.handlePodDelete,
+		},
+	)
+
+	go eController.Run(wait.NeverStop)
+	return eStore
+}
+
+// setupHealthzHandlers sets up a readiness and liveness endpoint for kube2sky.
+func setupHealthzHandlers(kc *kube2consul) {
+	http.HandleFunc("/readiness", func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintf(w, "ok\n")
+	})
 }
 
 func main() {
@@ -222,6 +267,10 @@ func main() {
 	}
 	if kc.etcdClient, err = bridge.NewEtcdClient(*argEtcdServer); err != nil {
 		glog.Fatalf("Failed to create etcd client - %v", err)
+	}
+
+	if kc.consulClient, err = newConsulClient(*argConsulAgent); err != nil {
+		glog.Fatalf("Failed to create Consul client - %v", err)
 	}
 
 	kubeClient, err := bridge.NewKubeClient(argKubeMasterURL, argKubecfgFile)

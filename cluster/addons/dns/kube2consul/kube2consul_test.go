@@ -88,11 +88,11 @@ const (
 func newKube2Consul(cc etcdClient) *kube2consul {
 	return &kube2consul{
 		// TODO: Abstract this so it allows consul or etcd clients.
-		etcdClient:            cc,
-		domain:                testDomain,
-		consulMutationTimeout: time.Second,
-		endpointsStore:        cache.NewStore(cache.MetaNamespaceKeyFunc),
-		servicesStore:         cache.NewStore(cache.MetaNamespaceKeyFunc),
+		etcdClient:          cc,
+		domain:              testDomain,
+		etcdMutationTimeout: time.Second,
+		endpointsStore:      cache.NewStore(cache.MetaNamespaceKeyFunc),
+		servicesStore:       cache.NewStore(cache.MetaNamespaceKeyFunc),
 	}
 }
 
