@@ -20,11 +20,8 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -35,21 +32,30 @@ import (
 	etcd "github.com/coreos/go-etcd/etcd"
 	"github.com/golang/glog"
 	consulApi "github.com/hashicorp/consul/api"
-	skymsg "github.com/skynetservices/skydns/msg"
 	flag "github.com/spf13/pflag"
+	bridge "k8s.io/kubernetes/cluster/addons/dns/bridge"
 	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/endpoints"
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	kcache "k8s.io/kubernetes/pkg/client/cache"
-	"k8s.io/kubernetes/pkg/client/restclient"
 	kclient "k8s.io/kubernetes/pkg/client/unversioned"
-	kclientcmd "k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
-	kframework "k8s.io/kubernetes/pkg/controller/framework"
-	kselector "k8s.io/kubernetes/pkg/fields"
-	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
 	utilflag "k8s.io/kubernetes/pkg/util/flag"
-	"k8s.io/kubernetes/pkg/util/validation"
-	"k8s.io/kubernetes/pkg/util/wait"
+	"net/url"
+)
+
+const (
+	// Maximum number of attempts to connect to consul server.
+	maxConnectAttempts = 12
+	// Resync period for the kube controller loop.
+	resyncPeriod = 5 * time.Second
+)
+
+var (
+	argDomain              = flag.String("domain", "cluster.local", "domain under which to create names")
+	argEtcdMutationTimeout = flag.Duration("etcd-mutation-timeout", 10*time.Second, "crash after retrying etcd mutation for a specified duration")
+	argEtcdServer          = flag.String("etcd-server", "http://127.0.0.1:4001", "URL to etcd server")
+	argKubeMasterURL       = flag.String("kube-master-url", "", "URL to reach kubernetes master. Env variables in this flag will be expanded.")
+	argKubecfgFile         = flag.String("kubecfg-file", "", "Location of kubecfg file for access to kubernetes master service; --kube-master-url overrides the URL part of this; if neither this nor --kube-master-url are provided, defaults to service account tokens")
+	argConsulAgent         = flag.String("consul-agent", "http://127.0.0.1:8500", "URL to consul agent")
+	healthzPort            = flag.Int("healthz-port", 8081, "port on which to serve a kube2sky HTTP readiness probe.")
 )
 
 type etcdClient interface {
@@ -64,8 +70,8 @@ type kube2consul struct {
 	etcdClient etcdClient
 	// DNS domain name.
 	domain string
-	// Consul mutation timeout.
-	consulMutationTimeout time.Duration
+	// Etcd mutation timeout.
+	etcdMutationTimeout time.Duration
 	// A cache that contains all the endpoints in the system.
 	endpointsStore kcache.Store
 	// A cache that contains all the services in the system.
@@ -147,16 +153,16 @@ func main() {
 		domain:              domain,
 		etcdMutationTimeout: *argEtcdMutationTimeout,
 	}
-	if kc.etcdClient, err = newEtcdClient(*argEtcdServer); err != nil {
+	if kc.etcdClient, err = bridge.NewEtcdClient(*argEtcdServer); err != nil {
 		glog.Fatalf("Failed to create etcd client - %v", err)
 	}
 
-	kubeClient, err := newKubeClient()
+	kubeClient, err := bridge.NewKubeClient(argKubeMasterURL, argKubecfgFile)
 	if err != nil {
 		glog.Fatalf("Failed to create a kubernetes client: %v", err)
 	}
 	// Wait synchronously for the Kubernetes service and add a DNS record for it.
-	kc.newService(waitForKubernetesService(kubeClient))
+	kc.newService(bridge.WaitForKubernetesService(kubeClient))
 	glog.Infof("Successfully added DNS record for Kubernetes service.")
 
 	kc.endpointsStore = watchEndpoints(kubeClient, &kc)
