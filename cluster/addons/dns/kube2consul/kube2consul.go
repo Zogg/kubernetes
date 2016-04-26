@@ -37,6 +37,7 @@ import (
 	kapi "k8s.io/kubernetes/pkg/api"
 	kcache "k8s.io/kubernetes/pkg/client/cache"
 	kclient "k8s.io/kubernetes/pkg/client/unversioned"
+	kframework "k8s.io/kubernetes/pkg/controller/framework"
 	utilflag "k8s.io/kubernetes/pkg/util/flag"
 	"net/url"
 )
@@ -185,6 +186,24 @@ func (ks *kube2consul) handlePodUpdate(old interface{}, new interface{}) {
 }
 
 func (ks *kube2consul) handlePodDelete(obj interface{}) {
+}
+
+func watchEndpoints(kubeClient *kclient.Client, k2c *kube2consul) kcache.Store {
+	eStore, eController := kframework.NewInformer(
+		createEndpointsLW(kubeClient),
+		&kapi.Endpoints{},
+		resyncPeriod,
+		kframework.ResourceEventHandlerFuncs{
+			AddFunc: k2c.handleEndpointAdd,
+			UpdateFunc: func(oldObj, newObj interface{}) {
+				// TODO: Avoid unwanted updates.
+				k2c.handleEndpointAdd(newObj)
+			},
+		},
+	)
+
+	go eController.Run(wait.NeverStop)
+	return eStore
 }
 
 func main() {

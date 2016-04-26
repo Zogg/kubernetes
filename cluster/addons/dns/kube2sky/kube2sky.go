@@ -40,7 +40,6 @@ import (
 	kcache "k8s.io/kubernetes/pkg/client/cache"
 	kclient "k8s.io/kubernetes/pkg/client/unversioned"
 	kframework "k8s.io/kubernetes/pkg/controller/framework"
-	kselector "k8s.io/kubernetes/pkg/fields"
 	utilflag "k8s.io/kubernetes/pkg/util/flag"
 	"k8s.io/kubernetes/pkg/util/validation"
 	"k8s.io/kubernetes/pkg/util/wait"
@@ -365,21 +364,6 @@ func (ks *kube2sky) mutateEtcdOrDie(mutator func() error) {
 	}
 }
 
-// Returns a cache.ListWatch that gets all changes to services.
-func createServiceLW(kubeClient *kclient.Client) *kcache.ListWatch {
-	return kcache.NewListWatchFromClient(kubeClient, "services", kapi.NamespaceAll, kselector.Everything())
-}
-
-// Returns a cache.ListWatch that gets all changes to endpoints.
-func createEndpointsLW(kubeClient *kclient.Client) *kcache.ListWatch {
-	return kcache.NewListWatchFromClient(kubeClient, "endpoints", kapi.NamespaceAll, kselector.Everything())
-}
-
-// Returns a cache.ListWatch that gets all changes to pods.
-func createEndpointsPodLW(kubeClient *kclient.Client) *kcache.ListWatch {
-	return kcache.NewListWatchFromClient(kubeClient, "pods", kapi.NamespaceAll, kselector.Everything())
-}
-
 func (ks *kube2sky) newService(obj interface{}) {
 	if s, ok := obj.(*kapi.Service); ok {
 		name := bridge.BuildDNSNameString(ks.domain, serviceSubdomain, s.Namespace, s.Name)
@@ -406,7 +390,7 @@ func (ks *kube2sky) updateService(oldObj, newObj interface{}) {
 
 func watchForServices(kubeClient *kclient.Client, ks *kube2sky) kcache.Store {
 	serviceStore, serviceController := kframework.NewInformer(
-		createServiceLW(kubeClient),
+		bridge.CreateServiceLW(kubeClient),
 		&kapi.Service{},
 		resyncPeriod,
 		kframework.ResourceEventHandlerFuncs{
@@ -421,7 +405,7 @@ func watchForServices(kubeClient *kclient.Client, ks *kube2sky) kcache.Store {
 
 func watchEndpoints(kubeClient *kclient.Client, ks *kube2sky) kcache.Store {
 	eStore, eController := kframework.NewInformer(
-		createEndpointsLW(kubeClient),
+		bridge.CreateEndpointsLW(kubeClient),
 		&kapi.Endpoints{},
 		resyncPeriod,
 		kframework.ResourceEventHandlerFuncs{
@@ -439,7 +423,7 @@ func watchEndpoints(kubeClient *kclient.Client, ks *kube2sky) kcache.Store {
 
 func watchPods(kubeClient *kclient.Client, ks *kube2sky) kcache.Store {
 	eStore, eController := kframework.NewInformer(
-		createEndpointsPodLW(kubeClient),
+		bridge.CreateEndpointsPodLW(kubeClient),
 		&kapi.Pod{},
 		resyncPeriod,
 		kframework.ResourceEventHandlerFuncs{

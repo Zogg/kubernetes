@@ -23,9 +23,11 @@ import (
 	"hash/fnv"
 	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/unversioned"
+	kcache "k8s.io/kubernetes/pkg/client/cache"
 	"k8s.io/kubernetes/pkg/client/restclient"
 	kclient "k8s.io/kubernetes/pkg/client/unversioned"
 	kclientcmd "k8s.io/kubernetes/pkg/client/unversioned/clientcmd"
+	kselector "k8s.io/kubernetes/pkg/fields"
 	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
 	"k8s.io/kubernetes/pkg/util/wait"
 	"net/url"
@@ -165,6 +167,21 @@ func NewEtcdClient(etcdServer string) (*etcd.Client, error) {
 		return nil, fmt.Errorf("Timed out after %s waiting for at least 1 synchronized etcd server in the cluster. Error: %v", timeout, err)
 	}
 	return client, nil
+}
+
+// Returns a cache.ListWatch that gets all changes to services.
+func CreateServiceLW(kubeClient *kclient.Client) *kcache.ListWatch {
+	return kcache.NewListWatchFromClient(kubeClient, "services", kapi.NamespaceAll, kselector.Everything())
+}
+
+// Returns a cache.ListWatch that gets all changes to endpoints.
+func CreateEndpointsLW(kubeClient *kclient.Client) *kcache.ListWatch {
+	return kcache.NewListWatchFromClient(kubeClient, "endpoints", kapi.NamespaceAll, kselector.Everything())
+}
+
+// Returns a cache.ListWatch that gets all changes to pods.
+func CreateEndpointsPodLW(kubeClient *kclient.Client) *kcache.ListWatch {
+	return kcache.NewListWatchFromClient(kubeClient, "pods", kapi.NamespaceAll, kselector.Everything())
 }
 
 // waitForKubernetesService waits for the "Kuberntes" master service.
