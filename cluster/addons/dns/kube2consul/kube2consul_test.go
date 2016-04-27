@@ -89,7 +89,7 @@ type fakeConsulClient struct {
 }
 
 func (fc *fakeConsulClient) Agent() (agent *consulApi.Agent) {
-	return fakeConsulAgent
+	return nil
 }
 
 const (
@@ -256,8 +256,9 @@ func TestHeadlessService(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
+	fa := &fakeConsulAgent{make(map[string]string)}
 	fe := &fakeEtcdClient{make(map[string]string)}
-	fc := &fakeConsulClient{}
+	fc := &fakeConsulClient{fa}
 	k2c := newKube2Consul(fe, fc)
 	service := newHeadlessService(testNamespace, testService)
 	assert.NoError(t, k2c.servicesStore.Add(&service))
