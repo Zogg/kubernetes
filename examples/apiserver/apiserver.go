@@ -19,7 +19,7 @@ package apiserver
 import (
 	"fmt"
 
-	"k8s.io/kubernetes/cmd/libs/go2idl/client-gen/testdata/apis/testgroup/v1"
+	"k8s.io/kubernetes/cmd/libs/go2idl/client-gen/testdata/apis/testgroup.k8s.io/v1"
 	testgroupetcd "k8s.io/kubernetes/examples/apiserver/rest"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/rest"
@@ -29,7 +29,7 @@ import (
 	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
 
 	// Install the testgroup API
-	_ "k8s.io/kubernetes/cmd/libs/go2idl/client-gen/testdata/apis/testgroup/install"
+	_ "k8s.io/kubernetes/cmd/libs/go2idl/client-gen/testdata/apis/testgroup.k8s.io/install"
 )
 
 const (
@@ -55,7 +55,14 @@ func newStorageDestinations(groupName string, groupMeta *apimachinery.GroupMeta)
 	return &storageDestinations, nil
 }
 
-func Run() error {
+func NewServerRunOptions() *genericapiserver.ServerRunOptions {
+	serverOptions := genericapiserver.NewServerRunOptions()
+	serverOptions.InsecurePort = InsecurePort
+	serverOptions.SecurePort = SecurePort
+	return serverOptions
+}
+
+func Run(serverOptions *genericapiserver.ServerRunOptions) error {
 	config := genericapiserver.Config{
 		EnableIndex:          true,
 		EnableSwaggerSupport: true,
@@ -86,15 +93,13 @@ func Run() error {
 		VersionedResourcesStorageMap: map[string]map[string]rest.Storage{
 			groupVersion.Version: restStorageMap,
 		},
-		Scheme:               api.Scheme,
-		NegotiatedSerializer: api.Codecs,
+		Scheme:                     api.Scheme,
+		NegotiatedSerializer:       api.Codecs,
+		NegotiatedStreamSerializer: api.StreamCodecs,
 	}
 	if err := s.InstallAPIGroups([]genericapiserver.APIGroupInfo{apiGroupInfo}); err != nil {
 		return fmt.Errorf("Error in installing API: %v", err)
 	}
-	serverOptions := genericapiserver.NewServerRunOptions()
-	serverOptions.InsecurePort = InsecurePort
-	serverOptions.SecurePort = SecurePort
 	s.Run(serverOptions)
 	return nil
 }

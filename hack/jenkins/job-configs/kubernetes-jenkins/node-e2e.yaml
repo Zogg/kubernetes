@@ -95,7 +95,7 @@
         - ansicolor:
             colormap: xterm
         - timeout:
-            timeout: 30
+            timeout: 45
             fail: true
         - timestamps
         - inject:
@@ -150,6 +150,7 @@
             owner: 'pszczesniak@google.com'
             shell: 'make test-unit test-integration'
         - 'kubelet':
+            cron-string: '{sq-cron-string}'
             repoName: 'kubernetes/kubernetes'
             gitbasedir: 'k8s.io/kubernetes'
             owner: 'pwittroc@google.com'

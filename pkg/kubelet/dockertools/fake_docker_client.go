@@ -55,8 +55,12 @@ type FakeDockerClient struct {
 	EnableSleep   bool
 }
 
+// We don't check docker version now, just set the docker version of fake docker client to 1.8.1.
+// Notice that if someday we also have minimum docker version requirement, this should also be updated.
+const fakeDockerVersion = "1.8.1"
+
 func NewFakeDockerClient() *FakeDockerClient {
-	return NewFakeDockerClientWithVersion("1.8.1", "1.20")
+	return NewFakeDockerClientWithVersion(fakeDockerVersion, minimumDockerAPIVersion)
 }
 
 func NewFakeDockerClientWithVersion(version, apiVersion string) *FakeDockerClient {
@@ -402,6 +406,8 @@ func (f *FakeDockerClient) PullImage(opts docker.PullImageOptions, auth docker.A
 }
 
 func (f *FakeDockerClient) Version() (*docker.Env, error) {
+	f.Lock()
+	defer f.Unlock()
 	return &f.VersionInfo, f.popError("version")
 }
 
