@@ -12,7 +12,7 @@ import {
 	// TODO: relocate APIObjectVersioner to storage.APIObjectVersioner_uint64
 	"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
 	"k8s.io/kubernetes/pkg/util"
-	//"k8s.io/kubernetes/pkg/watch"
+	"k8s.io/kubernetes/pkg/watch"
   
 	consulapi "github.com/hashicorp/consul/api"
 	"golang.org/x/net/context"
@@ -174,25 +174,29 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, out runtime.Ob
 	// kv declared outside of the spin-loop so that we can decode subsequent successful Gets
 	// in the event that another client deletes our key before we do.. this value is possibly
 	// lacking certified freshness
-	var kv consulapi.KVPair
+	var kvPrev *consulapi.KVPair
 	// spin cycle Get;DeleteCAS to ensure the returned value is the exact value prior to deletion
 	// TODO: perhaps a timeout or spincount would be wise here
 	for {
 		// empty QueryOptions is explicitly setting AllowStale to false
 		kv, _, err := s.ConsulKv.Get( key, &consulapi.QueryOptions{} )
 		if err != nil {
-			if isErrNotFound( err ) {
-				// if we have previously succeeded in getting a value, but not deleting it
-				// then decode the most recently gotten value (unless we have already done
-				// so in order to test for preconditions)
-				if len(kv.Value) != 0 && preconditions == nil {
-					err = s.extractObj(&kv, err, out, false)
-				}
+			return toStorageErr(err, key, 0)
+		}
+		if kv == nil {
+			// if we have previously succeeded in getting a value, but not deleting it
+			// then decode the most recently gotten value (unless we have already done
+			// so in order to test for preconditions)
+			if kvPrev != nil && len(kvPrev.Value) != 0 && preconditions == nil {
+				err = s.extractObj(kvPrev, err, out, false)
 			}
 			return toStorageErr(err, key, 0)
 		}
+		
+		kvPrev = kv
+		
 		if preconditions != nil {
-			err = s.extractObj(&kv, err, out, false)
+			err = s.extractObj(kv, err, out, false)
 			if err != nil {
 				return toStorageErr(err, key, 0)
 			}
@@ -200,14 +204,14 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, out runtime.Ob
 				return toStorageErr(err, key, 0)
 			}
 		}
-		succeeded, _, err := s.ConsulKv.DeleteCAS(&kv,nil)
+		succeeded, _, err := s.ConsulKv.DeleteCAS(kv,nil)
 		if err != nil {
 			if isErrNotFound( err ) {
 				// if we have previously succeeded in getting a value, but not deleting it
 				// then decode the most recently gotten value (unless we have already done
 				// so in order to test for preconditions)
 				if len(kv.Value) != 0 && preconditions == nil {
-					err = s.extractObj(&kv, err, out, false)
+					err = s.extractObj(kv, err, out, false)
 				}
 			}
 			return toStorageErr(err, key, 0)
@@ -221,11 +225,19 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, out runtime.Ob
 }
 
 func (s *ConsulKvStorage) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
-	
+	version, err := strconv.ParseUint( resourceVersion, 10, 64 )
+	if err != nil {
+		return err
+	}
+	return s.newConsulWatch( s.prefixKey(key), version, false )
 }
 
 func (s *ConsulKvStorage) WatchList(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
-	
+	version, err := strconv.ParseUint( resourceVersion, 10, 64 )
+	if err != nil {
+		return err
+	}
+	return s.newConsulWatch( s.prefixKey(key), version, true )
 }
 
 func (s *ConsulKvStorage) Get(ctx context.Context, key string, objPtr runtime.Object, ignoreNotFound bool) error {
@@ -233,11 +245,11 @@ func (s *ConsulKvStorage) Get(ctx context.Context, key string, objPtr runtime.Ob
 		glog.Errorf("Context is nil")
 	}
 	key = s.prefixEtcdKey(key)
-	kv, _, err := s.ConsulKv.Get(key, &consulapi.QueryOptions{})
+	kv, _, err := s.ConsulKv.Get(key, nil)
 	if err != nil {
 		return toStorageErr(err, key, 0)
 	}
-	err = s.extractObj(&kv, err, out, false)
+	err = s.extractObj(kv, err, out, false)
 	return toStorageErr(err, key, 0)
 }
 
