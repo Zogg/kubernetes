@@ -66,6 +66,10 @@ type etcdClient interface {
 	Delete(path string, recursive bool) (*etcd.Response, error)
 }
 
+type consulClient interface {
+	Agent() *consulApi.Agent
+}
+
 type kube2consul struct {
 	// TODO: Abstract this so it allows consul or etcd K/V storages.
 	// Etcd client.
@@ -73,7 +77,7 @@ type kube2consul struct {
 	etcdClient etcdClient
 
 	// Consul client.
-	consulClient *consulApi.Client
+	consulClient consulClient
 	// DNS domain name.
 	domain string
 	// Etcd mutation timeout.
@@ -104,10 +108,39 @@ func buildDNSNameString(labels ...string) string {
 	return res
 }
 
+func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
+	if strings.Contains(record, ".") {
+		glog.V(1).Infof("Service names containing '.' are not supported: %s\n", service.Name)
+		return nil
+	}
+
+	for i := range service.Spec.Ports {
+		asr := &consulApi.AgentServiceRegistration{
+			ID:      record,
+			Name:    record,
+			Address: service.Spec.ClusterIP,
+			Port:    service.Spec.Ports[0].Port,
+		}
+
+		glog.V(2).Infof("Setting DNS record: %v -> %d\n", record, service.Spec.Ports[i].Port)
+		if err := ks.consulClient.Agent().ServiceRegister(asr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (kc *kube2consul) newService(obj interface{}) {
 	_, err := consulApi.NewClient(consulApi.DefaultConfig())
 	if err != nil {
 		panic(err)
+	}
+
+	if s, ok := obj.(*kapi.Service); ok {
+		name := bridge.BuildDNSNameString(s.Name, s.Namespace)
+		if err := kc.addDNS(s.Name, s); err != nil {
+			glog.V(1).Infof("Failed to add service: %v due to: %v", name, err)
+		}
 	}
 }
 
