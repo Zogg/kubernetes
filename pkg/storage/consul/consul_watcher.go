@@ -1,19 +1,21 @@
 package consul 
 
 import (
-	"fmt"
-	"net/http"
-	"errors"
-	"strings"
+	//"fmt"
+	//"net/http"
+	//"errors"
+	//"strings"
+	"sort"
 	"sync"
-	"sync/atomic"
-	"time"
+	//"sync/atomic"
+	//"time"
   
-	"k8s.io/kubernetes/pkg/conversion"
-	"k8s.io/kbuernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/storage"
+	//"k8s.io/kubernetes/pkg/conversion"
+	"k8s.io/kubernetes/pkg/runtime"
+	//"k8s.io/kubernetes/pkg/storage"
 	// TODO: relocate APIObjectVersioner to storage.APIObjectVersioner_uint64
-	"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
+	//"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
+	"k8s.io/kubernetes/pkg/watch"
 
 	consulapi "github.com/hashicorp/consul/api"
 )
@@ -26,7 +28,7 @@ type retainedValue struct {
 type consulWatch struct {
 	stopChan    chan bool
 	resultChan  chan watch.Event
-	storage     ConsulKvStorage
+	storage     *ConsulKvStorage
 	stopLock    sync.Mutex
 	stopped     bool
 	emit        func(watch.Event) bool
@@ -36,9 +38,9 @@ func nullEmitter(w watch.Event) bool {
 	return false
 }
 
-func(s *ConsulKvStorage) newConsulWatch(key string, version uint64, deep bool) (*consulWatch, err) {
+func(s *ConsulKvStorage) newConsulWatch(key string, version uint64, deep bool) (*consulWatch, error) {
 	if deep {
-		KVs, qm, err := storage.ConsulKv.List(key, nil)
+		KVs, qm, err := s.ConsulKv.List(key, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -47,20 +49,23 @@ func(s *ConsulKvStorage) newConsulWatch(key string, version uint64, deep bool) (
 			resultChan: make( chan watch.Event ),
 			storage:    s,
 			stopped:    false,
-			emit:       func(ev watch.Event) bool {
-				select {
-					case <-stopChan:
-						return false
-						
-					case resultChan <- ev:
-						return true 
-				}
+		}
+		w.emit = func(ev watch.Event) bool {
+			select {
+				case <-w.stopChan:
+					return false
+					
+				case w.resultChan <- ev:
+					return true 
 			}
 		}
-		go w.watchDeep(storage, key, version, KVs)
+		if version == 0 {
+			version = qm.LastIndex
+		}
+		go w.watchDeep(key, version, KVs)
 		return w, nil
 	} else {
-		kv, qm, err := storage.ConsulKv.Get(key, nil)
+		kv, qm, err := s.ConsulKv.Get(key, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -69,38 +74,37 @@ func(s *ConsulKvStorage) newConsulWatch(key string, version uint64, deep bool) (
 			resultChan: make( chan watch.Event ),
 			storage:    s,
 			stopped:    false,
-			emit:       func(ev watch.Event) bool {
-				select {
-					case <-stopChan:
-						return false
-						
-					case resultChan <- ev:
-						return true 
-				}
+		}
+		w.emit = func(ev watch.Event) bool {
+			select {
+				case <-w.stopChan:
+					return false
+					
+				case w.resultChan <- ev:
+					return true 
 			}
 		}
 		if version == 0 {
 			if kv != nil {
 				version = kv.ModifyIndex
-			}
-			else if qm != nil {
+			} else if qm != nil {
 				version = qm.LastIndex
 			}
 		}
-		go w.watchSingle(storage, key, version, kv)
+		go w.watchSingle(key, version, kv)
 		return w, nil
 	}
 }
 
 type ByKey []*consulapi.KVPair
-func(kvs ByKey) Len() int       { return len(kvs) }
-func(kvs ByKey) Swap(i, j int)  { kvs[i], kvs[j] = kvs[j], kvs[i] }
+func(kvs ByKey) Len() int           { return len(kvs) }
+func(kvs ByKey) Swap(i, j int)      { kvs[i], kvs[j] = kvs[j], kvs[i] }
 
 // *** assume that nil entries will NEVER be produced by consul's client
 //func(kvs ByKey) Less(i, j int)  { (kvs[i] == nil && kvs[j] != nil) || (kvs[j] != nil && kvs[i].Key < kvs[j].Key) }
-func(kvs ByKey) Less(i, j int)  { kvs[i].Key < kvs[j].Key }
+func(kvs ByKey) Less(i, j int) bool { return kvs[i].Key < kvs[j].Key }
 
-func(w *consulWatch) watchDeep(storage *ConsulKvStorage, key string, version uint64, kvsLast []*consulapi.KVPair) {
+func(w *consulWatch) watchDeep(key string, version uint64, kvsLast []*consulapi.KVPair) {
 	defer w.clean()
 	cont := true
 	sort.Sort(ByKey(kvsLast))
@@ -108,8 +112,8 @@ func(w *consulWatch) watchDeep(storage *ConsulKvStorage, key string, version uin
 	versionNext := version
 	for cont {
 		j := 0
-		for i, kv := range kvs {
-			for ; j < len(kvsLast) && kvsLast[j].Key < kv.Key; ++j {
+		for _, kv := range kvs {
+			for ; j < len(kvsLast) && kvsLast[j].Key < kv.Key; j++ {
 				cont = w.emitEvent( watch.Deleted, kvsLast[j] )
 			}
 
@@ -128,7 +132,7 @@ func(w *consulWatch) watchDeep(storage *ConsulKvStorage, key string, version uin
 		
 		kvsLast = kvs
 		version = versionNext
-		kvs, qm, err := consulapi.List( key, consulapi.QueryOptions{ WaitIndex: version, WaitTime: storage.WaitTimeout } )
+		kvs, qm, err := w.storage.ConsulKv.List( key, &consulapi.QueryOptions{ WaitIndex: version, WaitTime: w.storage.Config.WaitTimeout } )
 		if err != nil {
 			w.emitError( key, err )
 			return
@@ -145,9 +149,8 @@ func(w *consulWatch) watchSingle(key string, version uint64, kvLast *consulapi.K
 	kv := kvLast
 	versionNext := version
 	for cont {
-		var ev watch.Event
 		if kv == nil && kvLast != nil {
-			cont = emitEvent( watch.Deleted, kvLast )
+			cont = w.emitEvent( watch.Deleted, kvLast )
 		}
 		if kv != nil {
 			if kv.ModifyIndex > version {
@@ -165,7 +168,9 @@ func(w *consulWatch) watchSingle(key string, version uint64, kvLast *consulapi.K
 		
 		kvLast = kv
 		version = versionNext
-		kv, qm, err := consulapi.Get( key, consulapi.QueryOptions{ WaitIndex: version, WaitTime: storage.WaitTimeout } )
+		var qm *consulapi.QueryMeta
+		var err error
+		kv, qm, err = w.storage.ConsulKv.Get( key, &consulapi.QueryOptions{ WaitIndex: version, WaitTime: w.storage.Config.WaitTimeout } )
 		if err != nil {
 			w.emitError( key, err )
 			return
@@ -179,7 +184,7 @@ func(w *consulWatch) clean() {
 	close(w.resultChan)
 }
 
-func(w *consulWatch) emitEvent( action string, kv *consulapi.KVPair ) bool {
+func(w *consulWatch) emitEvent( action watch.EventType, kv *consulapi.KVPair ) bool {
 	if kv != nil {
 		obj, err := runtime.Decode(w.storage.codec, kv.Value)
 		if err != nil {
@@ -204,7 +209,7 @@ func(w *consulWatch) Stop() {
 	if w.stopped {
 		return
 	}
-	stopChan <- true
+	w.stopChan <- true
 }
 
 func(w *consulWatch) ResultChan() <-chan watch.Event {
