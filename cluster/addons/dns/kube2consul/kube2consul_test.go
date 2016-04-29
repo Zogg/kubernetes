@@ -84,11 +84,7 @@ type fakeConsulAgent struct {
 	writes map[string]string
 }
 
-type fakeConsulClient struct {
-	agent *fakeConsulAgent
-}
-
-func (fc *fakeConsulClient) Agent() (agent *consulApi.Agent) {
+func (fa *fakeConsulAgent) ServiceRegister(service *consulApi.AgentServiceRegistration) error {
 	return nil
 }
 
@@ -99,11 +95,11 @@ const (
 	podSubDomain     = "pod"
 )
 
-func newKube2Consul(ec etcdClient, cc consulClient) *kube2consul {
+func newKube2Consul(ec etcdClient, ca consulAgent) *kube2consul {
 	return &kube2consul{
 		// TODO: Abstract this so it allows consul or etcd clients.
 		etcdClient:          ec,
-		consulClient:        cc,
+		consulAgent:         ca,
 		domain:              testDomain,
 		etcdMutationTimeout: time.Second,
 		endpointsStore:      cache.NewStore(cache.MetaNamespaceKeyFunc),
@@ -258,8 +254,7 @@ func TestHeadlessService(t *testing.T) {
 	)
 	fa := &fakeConsulAgent{make(map[string]string)}
 	fe := &fakeEtcdClient{make(map[string]string)}
-	fc := &fakeConsulClient{fa}
-	k2c := newKube2Consul(fe, fc)
+	k2c := newKube2Consul(fe, fa)
 	service := newHeadlessService(testNamespace, testService)
 	assert.NoError(t, k2c.servicesStore.Add(&service))
 	endpoints := newEndpoints(service, newSubsetWithOnePort("", 80, "10.0.0.1", "10.0.0.2"), newSubsetWithOnePort("", 8080, "10.0.0.3", "10.0.0.4"))

@@ -66,8 +66,8 @@ type etcdClient interface {
 	Delete(path string, recursive bool) (*etcd.Response, error)
 }
 
-type consulClient interface {
-	Agent() *consulApi.Agent
+type consulAgent interface {
+	ServiceRegister(service *consulApi.AgentServiceRegistration) error
 }
 
 type kube2consul struct {
@@ -76,8 +76,8 @@ type kube2consul struct {
 	// TODO: remove.
 	etcdClient etcdClient
 
-	// Consul client.
-	consulClient consulClient
+	// Consul client agent.
+	consulAgent consulAgent
 	// DNS domain name.
 	domain string
 	// Etcd mutation timeout.
@@ -123,7 +123,8 @@ func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
 		}
 
 		glog.V(2).Infof("Setting DNS record: %v -> %d\n", record, service.Spec.Ports[i].Port)
-		if err := ks.consulClient.Agent().ServiceRegister(asr); err != nil {
+
+		if err := ks.consulAgent.ServiceRegister(asr); err != nil {
 			return err
 		}
 	}
@@ -302,9 +303,11 @@ func main() {
 		glog.Fatalf("Failed to create etcd client - %v", err)
 	}
 
-	if kc.consulClient, err = newConsulClient(*argConsulAgent); err != nil {
+	consulClient, err := newConsulClient(*argConsulAgent)
+	if err != nil {
 		glog.Fatalf("Failed to create Consul client - %v", err)
 	}
+	kc.consulAgent = consulClient.Agent
 
 	kubeClient, err := bridge.NewKubeClient(argKubeMasterURL, argKubecfgFile)
 	if err != nil {
