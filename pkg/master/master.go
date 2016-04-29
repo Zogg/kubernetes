@@ -19,10 +19,10 @@ package master
 import (
 	"fmt"
 	"io"
-	"net"
+	//"net"
 	"net/http"
-	"net/url"
-	"strconv"
+	//"net/url"
+	//"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -78,8 +78,8 @@ import (
 	thirdpartyresourcedataetcd "k8s.io/kubernetes/pkg/registry/thirdpartyresourcedata/etcd"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
-	etcdmetrics "k8s.io/kubernetes/pkg/storage/etcd/metrics"
-	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
+	//etcdmetrics "k8s.io/kubernetes/pkg/storage/etcd/metrics"
+	//etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
 	"k8s.io/kubernetes/pkg/util/wait"
 
 	daemonetcd "k8s.io/kubernetes/pkg/registry/daemonset/etcd"
@@ -177,7 +177,7 @@ func New(c *Config) (*Master, error) {
 
 func resetMetrics(w http.ResponseWriter, req *http.Request) {
 	apiservermetrics.Reset()
-	etcdmetrics.Reset()
+	//etcdmetrics.Reset()
 	io.WriteString(w, "metrics reset\n")
 }
 
@@ -496,29 +496,29 @@ func (m *Master) getServersToValidate(c *Config) map[string]apiserver.Server {
 		"scheduler":          {Addr: "127.0.0.1", Port: ports.SchedulerPort, Path: "/healthz"},
 	}
 
-	for ix, machine := range c.StorageDestinations.Backends() {
-		etcdUrl, err := url.Parse(machine)
-		if err != nil {
-			glog.Errorf("Failed to parse etcd url for validation: %v", err)
-			continue
-		}
-		var port int
-		var addr string
-		if strings.Contains(etcdUrl.Host, ":") {
-			var portString string
-			addr, portString, err = net.SplitHostPort(etcdUrl.Host)
-			if err != nil {
-				glog.Errorf("Failed to split host/port: %s (%v)", etcdUrl.Host, err)
-				continue
-			}
-			port, _ = strconv.Atoi(portString)
-		} else {
-			addr = etcdUrl.Host
-			port = 4001
-		}
-		// TODO: etcd health checking should be abstracted in the storage tier
-		serversToValidate[fmt.Sprintf("etcd-%d", ix)] = apiserver.Server{Addr: addr, Port: port, Path: "/health", Validate: etcdutil.EtcdHealthCheck}
-	}
+	//for ix, machine := range c.StorageDestinations.Backends() {
+	//	etcdUrl, err := url.Parse(machine)
+	//	if err != nil {
+	//		glog.Errorf("Failed to parse etcd url for validation: %v", err)
+	//		continue
+	//	}
+	//	var port int
+	//	var addr string
+	//	if strings.Contains(etcdUrl.Host, ":") {
+	//		var portString string
+	//		addr, portString, err = net.SplitHostPort(etcdUrl.Host)
+	//		if err != nil {
+	//			glog.Errorf("Failed to split host/port: %s (%v)", etcdUrl.Host, err)
+	//			continue
+	//		}
+	//		port, _ = strconv.Atoi(portString)
+	//	} else {
+	//		addr = etcdUrl.Host
+	//		port = 4001
+	//	}
+	//	// TODO: etcd health checking should be abstracted in the storage tier
+	//	serversToValidate[fmt.Sprintf("etcd-%d", ix)] = apiserver.Server{Addr: addr, Port: port, Path: "/health", Validate: etcdutil.EtcdHealthCheck}
+	//}
 	return serversToValidate
 }
 

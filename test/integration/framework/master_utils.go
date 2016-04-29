@@ -45,8 +45,8 @@ import (
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
 	"k8s.io/kubernetes/pkg/master"
 	"k8s.io/kubernetes/pkg/runtime"
-	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
-	"k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
+	//etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
+	//"k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
 	"k8s.io/kubernetes/plugin/pkg/admission/admit"
 )
 
@@ -151,7 +151,7 @@ func NewMasterConfig() *master.Config {
 	etcdClient := NewEtcdClient()
 	storageVersions := make(map[string]string)
 
-	etcdStorage := etcdstorage.NewEtcdStorage(etcdClient, testapi.Default.Codec(), etcdtest.PathPrefix(), false)
+	etcdStorage := NewDefaultEtcdStorage(etcdClient, "testing")
 	storageVersions[api.GroupName] = testapi.Default.GroupVersion().String()
 	autoscalingEtcdStorage := NewAutoscalingEtcdStorage(etcdClient)
 	storageVersions[autoscaling.GroupName] = testapi.Autoscaling.GroupVersion().String()

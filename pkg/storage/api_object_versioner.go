@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package etcd
+package storage
 
 import (
 	"strconv"
@@ -24,7 +24,6 @@ import (
 	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/storage"
 )
 
 // APIObjectVersioner implements versioning and extracting etcd node information
@@ -76,4 +75,4 @@ func (a APIObjectVersioner) ObjectResourceVersion(obj runtime.Object) (uint64, e
 }
 
 // APIObjectVersioner implements Versioner
-var _ storage.Versioner = APIObjectVersioner{}
+var _ Versioner = APIObjectVersioner{}

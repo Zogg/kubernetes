@@ -15,7 +15,7 @@ import (
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
 	// TODO: relocate APIObjectVersioner to storage.APIObjectVersioner_uint64
-	"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
+	//"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
 	"k8s.io/kubernetes/pkg/util"
 	"k8s.io/kubernetes/pkg/watch"
   
@@ -27,7 +27,6 @@ import (
 type ConsulKvStorageConfig struct {
 	Config      ConsulConfig
 	Codec       runtime.Codec
-	WaitTimeout time.Duration
 }
 
 // implements storage.Config
@@ -45,12 +44,14 @@ func (c *ConsulKvStorageConfig) NewStorage() (storage.Interface, error) {
 		ConsulKv:   *client.KV(),
 		Config:     c,
 		codec:      c.Codec,
-		versioner:  etcd.APIObjectVersioner{},
+		versioner:  storage.APIObjectVersioner{},
 		copier:     api.Scheme,
 	}, nil
 }
 
 type ConsulConfig struct {
+	Prefix      string
+	WaitTimeout time.Duration
 	// TODO add specific configuration values for k8s to pass to consul client
 }
 
@@ -70,7 +71,6 @@ type ConsulKvStorage struct {
 	codec       runtime.Codec
 	copier      runtime.ObjectCopier
 	versioner   storage.Versioner
-	pathPrefix  string
 }
 
 func (s *ConsulKvStorage) Codec() runtime.Codec {
@@ -400,10 +400,10 @@ func checkPreconditions(key string, rv int64, preconditions *storage.Preconditio
 }
 
 func (s *ConsulKvStorage) prefixKey(key string) string {
-	if strings.HasPrefix(key, s.pathPrefix) {
+	if strings.HasPrefix(key, s.Config.Config.Prefix) {
 		return key
 	}
-	return path.Join(s.pathPrefix, key)
+	return path.Join(s.Config.Config.Prefix, key)
 }
 
 

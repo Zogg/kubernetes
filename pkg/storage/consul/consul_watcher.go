@@ -132,7 +132,7 @@ func(w *consulWatch) watchDeep(key string, version uint64, kvsLast []*consulapi.
 		
 		kvsLast = kvs
 		version = versionNext
-		kvs, qm, err := w.storage.ConsulKv.List( key, &consulapi.QueryOptions{ WaitIndex: version, WaitTime: w.storage.Config.WaitTimeout } )
+		kvs, qm, err := w.storage.ConsulKv.List( key, &consulapi.QueryOptions{ WaitIndex: version, WaitTime: w.storage.Config.Config.WaitTimeout } )
 		if err != nil {
 			w.emitError( key, err )
 			return
@@ -170,7 +170,7 @@ func(w *consulWatch) watchSingle(key string, version uint64, kvLast *consulapi.K
 		version = versionNext
 		var qm *consulapi.QueryMeta
 		var err error
-		kv, qm, err = w.storage.ConsulKv.Get( key, &consulapi.QueryOptions{ WaitIndex: version, WaitTime: w.storage.Config.WaitTimeout } )
+		kv, qm, err = w.storage.ConsulKv.Get( key, &consulapi.QueryOptions{ WaitIndex: version, WaitTime: w.storage.Config.Config.WaitTimeout } )
 		if err != nil {
 			w.emitError( key, err )
 			return

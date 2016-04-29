@@ -31,8 +31,8 @@ import (
 	"k8s.io/kubernetes/pkg/genericapiserver"
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
 	"k8s.io/kubernetes/pkg/master/ports"
-	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
 	consulstorage "k8s.io/kubernetes/pkg/storage/consul"
+	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
 	"k8s.io/kubernetes/pkg/util/config"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
 
@@ -53,6 +53,7 @@ type APIServer struct {
 	BasicAuthFile              string
 	CloudConfigFile            string
 	CloudProvider              string
+	ConsulConfig               consulstorage.ConsulConfig
 	CorsAllowedOriginList      []string
 	DeleteCollectionWorkers    int
 	DeprecatedStorageVersion   string
@@ -62,7 +63,6 @@ type APIServer struct {
 	EnableSwaggerUI            bool
 	EtcdServersOverrides       []string
 	EtcdConfig                 etcdstorage.EtcdConfig
-	ConsulConfig               consulstorage.ConsulKvStorageConfig
 	EventTTL                   time.Duration
 	ExternalHost               string
 	KeystoneURL                string
@@ -101,6 +101,10 @@ func NewAPIServer() *APIServer {
 		APIPrefix:               "/api",
 		AdmissionControl:        "AlwaysAdmit",
 		AuthorizationMode:       "AlwaysAllow",
+		ConsulConfig:            consulstorage.ConsulConfig{
+			Prefix:       genericapiserver.DefaultEtcdPathPrefix,
+			WaitTimeout:  time.Duration( 5 * time.Second ),
+		},
 		DeleteCollectionWorkers: 1,
 		EnableLogsSupport:       true,
 		EtcdConfig: etcdstorage.EtcdConfig{

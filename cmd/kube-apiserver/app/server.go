@@ -59,6 +59,7 @@ import (
 	"k8s.io/kubernetes/pkg/runtime/serializer/versioning"
 	"k8s.io/kubernetes/pkg/serviceaccount"
 	"k8s.io/kubernetes/pkg/storage"
+	consulstorage "k8s.io/kubernetes/pkg/storage/consul"
 	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
 )
@@ -109,6 +110,41 @@ func newEtcd(ns runtime.NegotiatedSerializer, storageGroupVersionString, memoryG
 
 	var storageConfig etcdstorage.EtcdStorageConfig
 	storageConfig.Config = etcdConfig
+	s, ok := ns.SerializerForMediaType("application/json", nil)
+	if !ok {
+		return nil, fmt.Errorf("unable to find serializer for JSON")
+	}
+	glog.Infof("constructing etcd storage interface.\n  sv: %v\n  mv: %v\n", storageVersion, memoryVersion)
+	encoder := ns.EncoderForVersion(s, storageVersion)
+	decoder := ns.DecoderToVersion(s, memoryVersion)
+	if memoryVersion.Group != storageVersion.Group {
+		// Allow this codec to translate between groups.
+		if err = versioning.EnableCrossGroupEncoding(encoder, memoryVersion.Group, storageVersion.Group); err != nil {
+			return nil, fmt.Errorf("error setting up encoder for %v: %v", storageGroupVersionString, err)
+		}
+		if err = versioning.EnableCrossGroupDecoding(decoder, storageVersion.Group, memoryVersion.Group); err != nil {
+			return nil, fmt.Errorf("error setting up decoder for %v: %v", storageGroupVersionString, err)
+		}
+	}
+	storageConfig.Codec = runtime.NewCodec(encoder, decoder)
+	return storageConfig.NewStorage()
+}
+
+func newConsulKv(ns runtime.NegotiatedSerializer, storageGroupVersionString, memoryGroupVersionString string, consulConfig consulstorage.ConsulConfig) (consulStorage storage.Interface, err error) {
+	if storageGroupVersionString == "" {
+		return consulStorage, fmt.Errorf("storageVersion is required to create a etcd storage")
+	}
+	storageVersion, err := unversioned.ParseGroupVersion(storageGroupVersionString)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't understand storage version %v: %v", storageGroupVersionString, err)
+	}
+	memoryVersion, err := unversioned.ParseGroupVersion(memoryGroupVersionString)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't understand memory version %v: %v", memoryGroupVersionString, err)
+	}
+
+	var storageConfig consulstorage.ConsulKvStorageConfig
+	storageConfig.Config = consulConfig
 	s, ok := ns.SerializerForMediaType("application/json", nil)
 	if !ok {
 		return nil, fmt.Errorf("unable to find serializer for JSON")
@@ -290,11 +326,12 @@ func Run(s *options.APIServer) error {
 	if _, found := storageVersions[legacyV1Group.GroupVersion.Group]; !found {
 		glog.Fatalf("Couldn't find the storage version for group: %q in storageVersions: %v", legacyV1Group.GroupVersion.Group, storageVersions)
 	}
-	etcdStorage, err := newEtcd(api.Codecs, storageVersions[legacyV1Group.GroupVersion.Group], "/__internal", s.EtcdConfig)
+	//etcdStorage, err := newEtcd(api.Codecs, storageVersions[legacyV1Group.GroupVersion.Group], "/__internal", s.EtcdConfig)
+	selectedStorage, err := newConsulKv(api.Codecs, storageVersions[legacyV1Group.GroupVersion.Group], "/__internal", s.ConsulConfig)
 	if err != nil {
 		glog.Fatalf("Invalid storage version or misconfigured etcd: %v", err)
 	}
-	storageDestinations.AddAPIGroup("", etcdStorage)
+	storageDestinations.AddAPIGroup("", selectedStorage)
 
 	if apiResourceConfigSource.AnyResourcesForVersionEnabled(extensionsapiv1beta1.SchemeGroupVersion) {
 		glog.Infof("Configuring extensions/v1beta1 storage destination")
@@ -392,7 +429,7 @@ func Run(s *options.APIServer) error {
 	if s.ServiceAccountLookup {
 		// If we need to look up service accounts and tokens,
 		// go directly to etcd to avoid recursive auth insanity
-		serviceAccountGetter = serviceaccountcontroller.NewGetterFromStorageInterface(etcdStorage)
+		serviceAccountGetter = serviceaccountcontroller.NewGetterFromStorageInterface(selectedStorage)
 	}
 
 	authenticator, err := authenticator.New(authenticator.AuthenticatorConfig{
