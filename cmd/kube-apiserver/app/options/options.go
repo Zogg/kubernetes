@@ -32,6 +32,7 @@ import (
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
 	"k8s.io/kubernetes/pkg/master/ports"
 	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
+	consulstorage "k8s.io/kubernetes/pkg/storage/consul"
 	"k8s.io/kubernetes/pkg/util/config"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
 
@@ -61,6 +62,7 @@ type APIServer struct {
 	EnableSwaggerUI            bool
 	EtcdServersOverrides       []string
 	EtcdConfig                 etcdstorage.EtcdConfig
+	ConsulConfig               consulstorage.ConsulKvStorageConfig
 	EventTTL                   time.Duration
 	ExternalHost               string
 	KeystoneURL                string
