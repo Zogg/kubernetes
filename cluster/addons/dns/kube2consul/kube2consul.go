@@ -47,7 +47,11 @@ const (
 	// Maximum number of attempts to connect to consul server.
 	maxConnectAttempts = 12
 	// Resync period for the kube controller loop.
-	resyncPeriod = 5 * time.Second
+	resyncPeriod = 30 * time.Minute
+	// A subdomain added to the user specified domain for all services.
+	serviceSubdomain = "svc"
+	// A subdomain added to the user specified dmoain for all pods.
+	podSubdomain = "pod"
 )
 
 var (
@@ -129,6 +133,19 @@ func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
 		}
 	}
 	return nil
+}
+func (kc *kube2consul) removeDNS(subdomain string) error {
+	glog.V(2).Infof("Removing %s from DNS", subdomain)
+	resp, err := kc.storage.Get(skymsg.Path(subdomain), false, true)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		glog.V(2).Infof("Subdomain %q does not exist in etcd", subdomain)
+		return nil
+	}
+	_, err = kc.storage.Delete(skymsg.Path(subdomain), true)
+	return err
 }
 
 func (kc *kube2consul) newService(obj interface{}) {
@@ -215,7 +232,48 @@ func (ks *kube2consul) updateService(oldObj, newObj interface{}) {
 func (kc *kube2consul) removeService(obj interface{}) {
 }
 
+func (kc *kube2consul) addDNSUsingEndpoints(subdomain string, e *kapi.Endpoints) error {
+	kc.mlock.Lock()
+	defer kc.mlock.Unlock()
+	svc, err := kc.getServiceFromEndpoints(e)
+	if err != nil {
+		return err
+	}
+	if svc == nil || kapi.IsServiceIPSet(svc) {
+		// No headless service found corresponding to endpoints object.
+		return nil
+	}
+	// Remove existing DNS entry.
+	if err := kc.removeDNS(subdomain); err != nil {
+		return err
+	}
+	return kc.generateRecordsForHeadlessService(subdomain, e, svc)
+}
+
+func (kc *kube2consul) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service, error) {
+	key, err := kcache.MetaNamespaceKeyFunc(e)
+	if err != nil {
+		return nil, err
+	}
+	obj, exists, err := kc.servicesStore.GetByKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get service object from services store - %v", err)
+	}
+	if !exists {
+		glog.V(1).Infof("could not find service for endpoint %q in namespace %q", e.Name, e.Namespace)
+		return nil, nil
+	}
+	if svc, ok := obj.(*kapi.Service); ok {
+		return svc, nil
+	}
+	return nil, fmt.Errorf("got a non service object in services store %v", obj)
+}
+
 func (kc *kube2consul) handleEndpointAdd(obj interface{}) {
+	if e, ok := obj.(*kapi.Endpoints); ok {
+		name := bridge.BuildDNSNameString(kc.domain, serviceSubdomain, e.Namespace, e.Name)
+		kc.addDNSUsingEndpoints(name, e)
+	}
 }
 
 func (ks *kube2consul) handlePodCreate(obj interface{}) {
@@ -307,7 +365,7 @@ func main() {
 	if err != nil {
 		glog.Fatalf("Failed to create Consul client - %v", err)
 	}
-	kc.consulAgent = consulClient.Agent
+	kc.consulAgent = consulClient.Agent()
 
 	kubeClient, err := bridge.NewKubeClient(argKubeMasterURL, argKubecfgFile)
 	if err != nil {

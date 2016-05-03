@@ -85,6 +85,9 @@ type fakeConsulAgent struct {
 }
 
 func (fa *fakeConsulAgent) ServiceRegister(service *consulApi.AgentServiceRegistration) error {
+	key := fmt.Sprintf("%s", service.ID)
+	value := fmt.Sprintf("%s:%d", service.Address, service.Port)
+	fa.writes[key] = value
 	return nil
 }
 
@@ -263,9 +266,9 @@ func TestHeadlessService(t *testing.T) {
 	expectedDNSRecords := 4
 	assert.NoError(t, k2c.endpointsStore.Add(&endpoints))
 	k2c.newService(&service)
-	assert.Equal(t, expectedDNSRecords, len(fc.writes))
+	assert.Equal(t, expectedDNSRecords, len(fa.writes))
 	k2c.removeService(&service)
-	assert.Empty(t, fc.writes)
+	assert.Empty(t, fa.writes)
 }
 
 /*
