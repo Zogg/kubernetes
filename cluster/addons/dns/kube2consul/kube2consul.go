@@ -20,6 +20,7 @@ limitations under the License.
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -32,6 +33,7 @@ import (
 	etcd "github.com/coreos/go-etcd/etcd"
 	"github.com/golang/glog"
 	consulApi "github.com/hashicorp/consul/api"
+	dns "github.com/miekg/dns"
 	flag "github.com/spf13/pflag"
 	bridge "k8s.io/kubernetes/cluster/addons/dns/bridge"
 	kapi "k8s.io/kubernetes/pkg/api"
@@ -100,6 +102,16 @@ func sanitizeIP(ip string) string {
 	return strings.Replace(ip, ".", "-", -1)
 }
 
+// Path converts a domainname to an etcd path. If s looks like service.staging.skydns.local.,
+// the resulting key will be /skydns/local/skydns/staging/service .
+func Path(s string) string {
+	l := dns.SplitDomainName(s)
+	for i, j := 0, len(l)-1; i < j; i, j = i+1, j-1 {
+		l[i], l[j] = l[j], l[i]
+	}
+	return path.Join(append([]string{"/" + PathPrefix + "/"}, l...)...)
+}
+
 func buildDNSNameString(labels ...string) string {
 	var res string
 	for _, label := range labels {
@@ -136,7 +148,7 @@ func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
 }
 func (kc *kube2consul) removeDNS(subdomain string) error {
 	glog.V(2).Infof("Removing %s from DNS", subdomain)
-	resp, err := kc.etcdClient.Get(skymsg.Path(subdomain), false, true)
+	resp, err := kc.etcdClient.RawGet(Path(subdomain), false, true)
 	if err != nil {
 		return err
 	}
@@ -144,7 +156,7 @@ func (kc *kube2consul) removeDNS(subdomain string) error {
 		glog.V(2).Infof("Subdomain %q does not exist in etcd", subdomain)
 		return nil
 	}
-	_, err = kc.etcdClient.Delete(skymsg.Path(subdomain), true)
+	_, err = kc.etcdClient.Delete(Path(subdomain), true)
 	return err
 }
 

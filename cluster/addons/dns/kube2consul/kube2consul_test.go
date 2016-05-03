@@ -266,9 +266,10 @@ func TestHeadlessService(t *testing.T) {
 	expectedDNSRecords := 4
 	assert.NoError(t, k2c.endpointsStore.Add(&endpoints))
 	k2c.newService(&service)
+	assert.Equal(t, expectedDNSRecords, len(fe.writes))
 	assert.Equal(t, expectedDNSRecords, len(fa.writes))
 	k2c.removeService(&service)
-	assert.Empty(t, fa.writes)
+	assert.Empty(t, fe.writes)
 }
 
 /*
