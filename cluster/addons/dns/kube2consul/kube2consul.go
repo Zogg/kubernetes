@@ -136,7 +136,7 @@ func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
 }
 func (kc *kube2consul) removeDNS(subdomain string) error {
 	glog.V(2).Infof("Removing %s from DNS", subdomain)
-	resp, err := kc.storage.Get(skymsg.Path(subdomain), false, true)
+	resp, err := kc.etcdClient.Get(skymsg.Path(subdomain), false, true)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (kc *kube2consul) removeDNS(subdomain string) error {
 		glog.V(2).Infof("Subdomain %q does not exist in etcd", subdomain)
 		return nil
 	}
-	_, err = kc.storage.Delete(skymsg.Path(subdomain), true)
+	_, err = kc.etcdClient.Delete(skymsg.Path(subdomain), true)
 	return err
 }
 
