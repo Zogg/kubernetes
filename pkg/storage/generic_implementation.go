@@ -142,7 +142,7 @@ func(s *genericWrapper) Get(ctx context.Context, key string, objPtr runtime.Obje
 }
 
 func(s *genericWrapper) GetToList(ctx context.Context, key string, filter FilterFunc, listObj runtime.Object) error {
-	var rawList []generic.RawObject
+	rawList := make([]generic.RawObject,0)
 	listVersion, err := s.generic.GetToList(ctx, key, &rawList)
 	if err != nil {
 		return err
@@ -151,7 +151,7 @@ func(s *genericWrapper) GetToList(ctx context.Context, key string, filter Filter
 }
 
 func(s *genericWrapper) List(ctx context.Context, key string, resourceVersion string, filter FilterFunc, listObj runtime.Object) error {
-	var rawList []generic.RawObject
+	rawList := make([]generic.RawObject,0)
 	listVersion, err := s.generic.List(ctx, key, resourceVersion, &rawList)
 	if err != nil {
 		return err
