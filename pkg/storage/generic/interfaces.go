@@ -52,7 +52,7 @@ type InterfaceRaw interface {
 	// Get unmarshals json found at key into objPtr. On a not found error, will either
 	// return a zero object of the requested type, or an error, depending on ignoreNotFound.
 	// Treats empty responses and nil response nodes exactly like a not found error.
-	Get(ctx context.Context, key string, raw *RawObject, ignoreNotFound bool) error
+	Get(ctx context.Context, key string, raw *RawObject) error
 
 	// GetToList unmarshals json found at key and opaque it into *List api object
 	// (an object that satisfies the runtime.IsList definition).
@@ -66,5 +66,5 @@ type InterfaceRaw interface {
 
 	// TODO: Figure out what, exactly, must be done to facilitate GuaranteedUpdate
 	// from the raw layer
-	GuaranteedUpdate(ctx context.Context, key string, ignoreNotFound bool, tryUpdate UpdateFunc) error
+	Set(ctx context.Context, key string, raw *RawObject) (bool, error)
 }

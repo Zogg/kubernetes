@@ -133,11 +133,11 @@ func(s *genericWrapper) WatchList(ctx context.Context, key string, resourceVersi
 
 func(s *genericWrapper) Get(ctx context.Context, key string, objPtr runtime.Object, ignoreNotFound bool) error {
 	var raw generic.RawObject
-	err := s.generic.Get(ctx, key, &raw, ignoreNotFound)
+	err := s.generic.Get(ctx, key, &raw)
 	if err != nil {
 		return err
 	}
-	err = s.extractObj(raw, err, objPtr, false)
+	err = s.extractObj(raw, err, objPtr, ignoreNotFound)
 	return err
 }
 
@@ -208,10 +208,13 @@ func(s *genericWrapper) GuaranteedUpdate(ctx context.Context, key string, ptrToT
 		panic("need ptr to type")
 	}
 	key = s.prefixKey(key)
-	UpdateFuncWrapper := func(raw *generic.RawObject) error {
+	for {
 		obj := reflect.New(v.Type()).Interface().(runtime.Object)
-		err := s.extractObj(*raw, nil, obj, ignoreNotFound)
-		if err != nil {
+		raw := generic.RawObject{}
+		if err := s.generic.Get(ctx, key, &raw); err != nil {
+			return err
+		}
+		if err := s.extractObj(raw, nil, obj, ignoreNotFound); err != nil {
 			return err
 		}
 		if err := checkPreconditions(key, raw.Version, preconditions, obj); err != nil {
@@ -232,15 +235,19 @@ func(s *genericWrapper) GuaranteedUpdate(ctx context.Context, key string, ptrToT
 		if err := s.versioner.UpdateObject(outObj, meta.Expiration, 0); err != nil {
 			return errors.New("resourceVersion cannot be set on objects store in kv")
 		}
-
 		data, err := runtime.Encode(s.codec, outObj)
 		if err != nil {
 			return err
 		}
 		raw.Data = data
-		return nil
+		succeeded, err := s.generic.Set(ctx, key, &raw)
+		if err != nil {
+			return err
+		}
+		if succeeded {
+			return nil
+		}
 	}
-	return s.generic.GuaranteedUpdate(ctx, key, ignoreNotFound, UpdateFuncWrapper)
 }
 
 func(s *genericWrapper) Codec() runtime.Codec {
