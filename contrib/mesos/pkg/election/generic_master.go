@@ -2,10 +2,10 @@ package election
 
 import (
 	"bytes"
-	"fmt"
+	//"fmt"
 	"time"
 	
-	"k8s.io/kubernetes/pkg/api/unversioned"
+	//"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/storage/generic"
 	"k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/watch"
@@ -14,15 +14,13 @@ import (
 	"golang.org/x/net/context"
 )
 
-func NewGenericMasterElector(storage generic.RawInterface) MasterElector {
+func NewGenericMasterElector(storage generic.InterfaceRaw) MasterElector {
 	return &genericMasterElector{storage: storage}
 }
 
-type empty struct{}
-
 // internal implementation struct
 type genericMasterElector struct {
-	storage generic.RawInterface
+	storage generic.InterfaceRaw
 	done    chan empty
 	events  chan watch.Event
 }
@@ -69,9 +67,9 @@ func (e *genericMasterElector) extendMaster(path, id string, ttl uint64, raw *ge
 	newRaw := generic.RawObject{
 		Data:       []byte(id),
 		Version:    raw.Version,
-		TTL:        ttl,
+		TTL:        int64(ttl),
 	}
-	succeeded, err := e.storage.Set(context.TODO(), path, newRaw)
+	succeeded, err := e.storage.Set(context.TODO(), path, &newRaw)
 	if err != nil {
 		return "", err
 	}
@@ -108,7 +106,7 @@ func (e *genericMasterElector) becomeMaster(path, id string, ttl uint64) (string
 // it returns "", nil
 func (e *genericMasterElector) handleMaster(path, id string, ttl uint64) (string, error) {
 	raw := generic.RawObject{}
-	res, err := e.storage.Get(context.TODO(), path, &raw)
+	err := e.storage.Get(context.TODO(), path, &raw)
 
 	// Unexpected error, bail out
 	if err != nil {
@@ -127,7 +125,7 @@ func (e *genericMasterElector) handleMaster(path, id string, ttl uint64) (string
 	}
 
 	// We are the master, try to extend out lease
-	return e.extendMaster(path, id, ttl, res)
+	return e.extendMaster(path, id, ttl, &raw)
 }
 
 // master provices a distributed master election lock, maintains lock until failure, or someone sends something in the done channel.
