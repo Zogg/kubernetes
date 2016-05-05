@@ -64,22 +64,19 @@ var (
 	healthzPort            = flag.Int("healthz-port", 8081, "port on which to serve a kube2sky HTTP readiness probe.")
 )
 
-type etcdClient interface {
-	Set(path, value string, ttl uint64) (*etcd.Response, error)
-	RawGet(key string, sort, recursive bool) (*etcd.RawResponse, error)
-	Delete(path string, recursive bool) (*etcd.Response, error)
-}
-
 type consulAgent interface {
 	ServiceRegister(service *consulApi.AgentServiceRegistration) error
 	ServiceDeregister(serviceID string) error
 }
 
+type consulKVStorage interface {
+	Get(key string, q *consulApi.QueryOptions) (*consulApi.KVPair, *consulApi.QueryMeta, error)
+	Put(p *consulApi.KVPair, q *consulApi.WriteOptions) (*consulApi.WriteMeta, error)
+	Delete(key string, w *consulApi.WriteOptions) (*consulApi.WriteMeta, error)
+}
+
 type kube2consul struct {
-	// TODO: Abstract this so it allows consul or etcd K/V storages.
-	// Etcd client.
-	// TODO: remove.
-	etcdClient etcdClient
+	consulKV consulKVStorage
 
 	// Consul client agent.
 	consulAgent consulAgent
@@ -358,15 +355,13 @@ func main() {
 		domain:              domain,
 		etcdMutationTimeout: *argEtcdMutationTimeout,
 	}
-	if kc.etcdClient, err = bridge.NewEtcdClient(*argEtcdServer); err != nil {
-		glog.Fatalf("Failed to create etcd client - %v", err)
-	}
 
 	consulClient, err := newConsulClient(*argConsulAgent)
 	if err != nil {
 		glog.Fatalf("Failed to create Consul client - %v", err)
 	}
 	kc.consulAgent = consulClient.Agent()
+	kc.consulKV = consulClient.KV()
 
 	kubeClient, err := bridge.NewKubeClient(argKubeMasterURL, argKubecfgFile)
 	if err != nil {
