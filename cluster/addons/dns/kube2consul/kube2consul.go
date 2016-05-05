@@ -29,7 +29,6 @@ import (
 	"syscall"
 	"time"
 
-	etcd "github.com/coreos/go-etcd/etcd"
 	"github.com/golang/glog"
 	consulApi "github.com/hashicorp/consul/api"
 	flag "github.com/spf13/pflag"
@@ -55,13 +54,11 @@ const (
 )
 
 var (
-	argDomain              = flag.String("domain", "cluster.local", "domain under which to create names")
-	argEtcdMutationTimeout = flag.Duration("etcd-mutation-timeout", 10*time.Second, "crash after retrying etcd mutation for a specified duration")
-	argEtcdServer          = flag.String("etcd-server", "http://127.0.0.1:4001", "URL to etcd server")
-	argKubeMasterURL       = flag.String("kube-master-url", "", "URL to reach kubernetes master. Env variables in this flag will be expanded.")
-	argKubecfgFile         = flag.String("kubecfg-file", "", "Location of kubecfg file for access to kubernetes master service; --kube-master-url overrides the URL part of this; if neither this nor --kube-master-url are provided, defaults to service account tokens")
-	argConsulAgent         = flag.String("consul-agent", "http://127.0.0.1:8500", "URL to consul agent")
-	healthzPort            = flag.Int("healthz-port", 8081, "port on which to serve a kube2sky HTTP readiness probe.")
+	argDomain        = flag.String("domain", "cluster.local", "domain under which to create names")
+	argKubeMasterURL = flag.String("kube-master-url", "", "URL to reach kubernetes master. Env variables in this flag will be expanded.")
+	argKubecfgFile   = flag.String("kubecfg-file", "", "Location of kubecfg file for access to kubernetes master service; --kube-master-url overrides the URL part of this; if neither this nor --kube-master-url are provided, defaults to service account tokens")
+	argConsulAgent   = flag.String("consul-agent", "http://127.0.0.1:8500", "URL to consul agent")
+	healthzPort      = flag.Int("healthz-port", 8081, "port on which to serve a kube2sky HTTP readiness probe.")
 )
 
 type consulAgent interface {
@@ -82,8 +79,6 @@ type kube2consul struct {
 	consulAgent consulAgent
 	// DNS domain name.
 	domain string
-	// Etcd mutation timeout.
-	etcdMutationTimeout time.Duration
 	// A cache that contains all the endpoints in the system.
 	endpointsStore kcache.Store
 	// A cache that contains all the services in the system.
@@ -352,8 +347,7 @@ func main() {
 		domain = fmt.Sprintf("%s.", domain)
 	}
 	kc := kube2consul{
-		domain:              domain,
-		etcdMutationTimeout: *argEtcdMutationTimeout,
+		domain: domain,
 	}
 
 	consulClient, err := newConsulClient(*argConsulAgent)
