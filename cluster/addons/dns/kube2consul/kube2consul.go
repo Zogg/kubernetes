@@ -20,7 +20,6 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -33,7 +32,6 @@ import (
 	etcd "github.com/coreos/go-etcd/etcd"
 	"github.com/golang/glog"
 	consulApi "github.com/hashicorp/consul/api"
-	dns "github.com/miekg/dns"
 	flag "github.com/spf13/pflag"
 	bridge "k8s.io/kubernetes/cluster/addons/dns/bridge"
 	kapi "k8s.io/kubernetes/pkg/api"
@@ -74,6 +72,7 @@ type etcdClient interface {
 
 type consulAgent interface {
 	ServiceRegister(service *consulApi.AgentServiceRegistration) error
+	ServiceDeregister(serviceID string) error
 }
 
 type kube2consul struct {
@@ -102,16 +101,6 @@ func sanitizeIP(ip string) string {
 	return strings.Replace(ip, ".", "-", -1)
 }
 
-// Path converts a domainname to an etcd path. If s looks like service.staging.skydns.local.,
-// the resulting key will be /skydns/local/skydns/staging/service .
-func Path(s string) string {
-	l := dns.SplitDomainName(s)
-	for i, j := 0, len(l)-1; i < j; i, j = i+1, j-1 {
-		l[i], l[j] = l[j], l[i]
-	}
-	return path.Join(append([]string{"/" + PathPrefix + "/"}, l...)...)
-}
-
 func buildDNSNameString(labels ...string) string {
 	var res string
 	for _, label := range labels {
@@ -127,6 +116,12 @@ func buildDNSNameString(labels ...string) string {
 func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
 	if strings.Contains(record, ".") {
 		glog.V(1).Infof("Service names containing '.' are not supported: %s\n", service.Name)
+		return nil
+	}
+
+	// if PortalIP is not set, do not create a DNS records
+	if !kapi.IsServiceIPSet(service) {
+		glog.V(1).Infof("Skipping dns record for headless service: %s\n", service.Name)
 		return nil
 	}
 
@@ -146,18 +141,9 @@ func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
 	}
 	return nil
 }
-func (kc *kube2consul) removeDNS(subdomain string) error {
-	glog.V(2).Infof("Removing %s from DNS", subdomain)
-	resp, err := kc.etcdClient.RawGet(Path(subdomain), false, true)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		glog.V(2).Infof("Subdomain %q does not exist in etcd", subdomain)
-		return nil
-	}
-	_, err = kc.etcdClient.Delete(Path(subdomain), true)
-	return err
+func (kc *kube2consul) removeDNS(record string) error {
+	glog.V(2).Infof("Removing %s from DNS", record)
+	return kc.consulAgent.ServiceDeregister(record)
 }
 
 func (kc *kube2consul) newService(obj interface{}) {
@@ -244,24 +230,6 @@ func (ks *kube2consul) updateService(oldObj, newObj interface{}) {
 func (kc *kube2consul) removeService(obj interface{}) {
 }
 
-func (kc *kube2consul) addDNSUsingEndpoints(subdomain string, e *kapi.Endpoints) error {
-	kc.mlock.Lock()
-	defer kc.mlock.Unlock()
-	svc, err := kc.getServiceFromEndpoints(e)
-	if err != nil {
-		return err
-	}
-	if svc == nil || kapi.IsServiceIPSet(svc) {
-		// No headless service found corresponding to endpoints object.
-		return nil
-	}
-	// Remove existing DNS entry.
-	if err := kc.removeDNS(subdomain); err != nil {
-		return err
-	}
-	return kc.generateRecordsForHeadlessService(subdomain, e, svc)
-}
-
 func (kc *kube2consul) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service, error) {
 	key, err := kcache.MetaNamespaceKeyFunc(e)
 	if err != nil {
@@ -281,32 +249,53 @@ func (kc *kube2consul) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service
 	return nil, fmt.Errorf("got a non service object in services store %v", obj)
 }
 
-func (kc *kube2consul) handleEndpointAdd(obj interface{}) {
-	if e, ok := obj.(*kapi.Endpoints); ok {
-		name := bridge.BuildDNSNameString(kc.domain, serviceSubdomain, e.Namespace, e.Name)
-		kc.addDNSUsingEndpoints(name, e)
+func (kc *kube2consul) handleServiceAdd(obj interface{}) {
+	if s, ok := obj.(*kapi.Service); ok {
+		name := bridge.BuildDNSNameString(kc.domain, serviceSubdomain, s.Namespace, s.Name)
+		if err := kc.addDNS(s.Name, s); err != nil {
+			glog.V(1).Infof("Failed to add service: %v due to: %v", name, err)
+		}
 	}
 }
 
-func (ks *kube2consul) handlePodCreate(obj interface{}) {
+func (kc *kube2consul) handleServiceRemove(obj interface{}) {
+	if s, ok := obj.(*kapi.Service); ok {
+		name := bridge.BuildDNSNameString(s.Name, s.Namespace)
+		if err := kc.removeDNS(s.Name); err != nil {
+			glog.V(1).Infof("Failed to remove service: %v due to: %v", name, err)
+		}
+	}
 }
 
-func (ks *kube2consul) handlePodUpdate(old interface{}, new interface{}) {
+func (kc *kube2consul) handlePodCreate(obj interface{}) {
 }
 
-func (ks *kube2consul) handlePodDelete(obj interface{}) {
+func (kc *kube2consul) handlePodUpdate(old interface{}, new interface{}) {
 }
 
-func watchEndpoints(kubeClient *kclient.Client, k2c *kube2consul) kcache.Store {
+func (kc *kube2consul) handlePodRemove(obj interface{}) {
+}
+
+func (kc *kube2consul) handleEndpointAdd(obj interface{}) {
+}
+
+func (kc *kube2consul) handleEndpointUpdate(old interface{}, new interface{}) {
+}
+
+func (kc *kube2consul) handleEndpointRemove(obj interface{}) {
+}
+
+func watchEndpoints(kubeClient *kclient.Client, kc *kube2consul) kcache.Store {
 	eStore, eController := kframework.NewInformer(
 		bridge.CreateEndpointsLW(kubeClient),
 		&kapi.Endpoints{},
 		resyncPeriod,
 		kframework.ResourceEventHandlerFuncs{
-			AddFunc: k2c.handleEndpointAdd,
+			AddFunc:    kc.handleEndpointAdd,
+			DeleteFunc: kc.handleEndpointRemove,
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				// TODO: Avoid unwanted updates.
-				k2c.handleEndpointAdd(newObj)
+				kc.handleEndpointAdd(newObj)
 			},
 		},
 	)
@@ -340,7 +329,7 @@ func watchPods(kubeClient *kclient.Client, kc *kube2consul) kcache.Store {
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				kc.handlePodUpdate(oldObj, newObj)
 			},
-			DeleteFunc: kc.handlePodDelete,
+			DeleteFunc: kc.handlePodRemove,
 		},
 	)
 

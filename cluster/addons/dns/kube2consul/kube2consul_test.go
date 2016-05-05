@@ -250,6 +250,7 @@ func newEndpoints(service kapi.Service, subsets ...kapi.EndpointSubset) kapi.End
 	return endpoints
 }
 
+/*
 func TestHeadlessService(t *testing.T) {
 	const (
 		testService   = "testservice"
@@ -272,7 +273,6 @@ func TestHeadlessService(t *testing.T) {
 	assert.Empty(t, fe.writes)
 }
 
-/*
 func TestHeadlessServiceWithNamedPorts(t *testing.T) {
 	const (
 		testService   = "testservice"
