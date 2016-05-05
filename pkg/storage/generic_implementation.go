@@ -359,6 +359,11 @@ func(w *genericWatcher) run() {
 					}
 					evOut.Object = obj
 				}
+				if evOut.Type == watch.Error {
+					evOut.Object = evIn.ErrorStatus.(runtime.Object)
+					w.resultChan<-evOut
+					return
+				}
 				select {
 					case <-w.stopChan:
 						return
@@ -377,7 +382,7 @@ func(w *genericWatcher) cleanup() {
 func(w *genericWatcher) Stop() {
 	if atomic.SwapUint32( &w.stopped, 1 ) == 0 {
 		w.raw.Stop()
-		w.stopChan <- true
+		//w.stopChan <- true
 	}
 }
 

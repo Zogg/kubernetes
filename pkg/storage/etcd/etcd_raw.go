@@ -124,7 +124,16 @@ func(s *etcdLowLevel) Delete(ctx context.Context, key string, raw *generic.RawOb
 	// which should be the current resourceVersion, and no longer rv+1
 	// (e.g. reconnecting without missing any updates).
 func(s *etcdLowLevel) Watch(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
-	return nil, nil
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	watchRV, err := storage.ParseWatchResourceVersion(resourceVersion)
+	if err != nil {
+		return nil, err
+	}
+	ret := newEtcdWatcherRaw(false, s.quorum, nil)
+	go ret.etcdWatch(ctx, s.etcdKeysAPI, key, watchRV)
+	return ret, nil
 }
 
 	// WatchList begins watching the specified key's items. Items are decoded into API
@@ -133,7 +142,16 @@ func(s *etcdLowLevel) Watch(ctx context.Context, key string, resourceVersion str
 	// which should be the current resourceVersion, and no longer rv+1
 	// (e.g. reconnecting without missing any updates).
 func(s *etcdLowLevel) WatchList(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
-	return nil, nil
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	watchRV, err := storage.ParseWatchResourceVersion(resourceVersion)
+	if err != nil {
+		return nil, err
+	}
+	ret := newEtcdWatcherRaw(true, s.quorum, exceptKey(key))
+	go ret.etcdWatch(ctx, s.etcdKeysAPI, key, watchRV)
+	return ret, nil
 }
 
 	// Get unmarshals json found at key into objPtr. On a not found error, will either
@@ -149,10 +167,10 @@ func(s *etcdLowLevel) Get(ctx context.Context, key string, raw *generic.RawObjec
 	}
 
 	response, err := s.etcdKeysAPI.Get(ctx, key, opts)
+	copyResponse(response, raw, false)
 	if err != nil {
 		return toStorageErr(err, key, 0)
 	}
-	copyResponse(response, raw, false)
 	return nil
 }
 
@@ -171,13 +189,13 @@ func(s *etcdLowLevel) Set(ctx context.Context, key string, raw *generic.RawObjec
 		opts.PrevExist = etcd.PrevNoExist
 	}
 	response, err := s.etcdKeysAPI.Set(ctx, key, string(raw.Data), &opts)
+	copyResponse(response, raw, false)
 	if err != nil {
 		if etcdutil.IsEtcdTestFailed(err) {
 			return false, nil
 		}
 		return false, toStorageErr(err, key, 0)
 	}
-	copyResponse(response, raw, false)
 	return true, nil
 }
 
