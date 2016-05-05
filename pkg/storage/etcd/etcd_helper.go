@@ -121,16 +121,17 @@ func (c *EtcdConfig) newHttpTransport() (*http.Transport, error) {
 // Creates a new storage interface from the client
 // TODO: deprecate in favor of storage.Config abstraction over time
 func NewEtcdStorage(client etcd.Client, codec runtime.Codec, prefix string, quorum bool) storage.Interface {
-	return &etcdHelper{
-		etcdMembersAPI: etcd.NewMembersAPI(client),
-		etcdKeysAPI:    etcd.NewKeysAPI(client),
-		codec:          codec,
-		versioner:      APIObjectVersioner{},
-		copier:         api.Scheme,
-		pathPrefix:     path.Join("/", prefix),
-		quorum:         quorum,
-		cache:          utilcache.NewCache(maxEtcdCacheEntries),
-	}
+	//return &etcdHelper{
+	//	etcdMembersAPI: etcd.NewMembersAPI(client),
+	//	etcdKeysAPI:    etcd.NewKeysAPI(client),
+	//	codec:          codec,
+	//	versioner:      APIObjectVersioner{},
+	//	copier:         api.Scheme,
+	//	pathPrefix:     path.Join("/", prefix),
+	//	quorum:         quorum,
+	//	cache:          utilcache.NewCache(maxEtcdCacheEntries),
+	//}
+	return storage.NewGenericWrapper(NewEtcdRawStorage(client, quorum), codec, prefix)
 }
 
 // etcdHelper is the reference implementation of storage.Interface.

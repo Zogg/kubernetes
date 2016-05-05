@@ -261,11 +261,12 @@ func copyResponse(response *etcd.Response, raw *generic.RawObject, previous bool
 	var node *etcd.Node
 
 	if response == nil || raw == nil {
-		if previous {
-			node = response.PrevNode
-		} else {
-			node = response.Node
-		}
+		return
+	}
+	if previous {
+		node = response.PrevNode
+	} else {
+		node = response.Node
 	}
 	if node == nil {
 		return

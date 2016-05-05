@@ -43,7 +43,7 @@ func NewGenericWrapper(raw generic.InterfaceRaw, codec runtime.Codec, prefix str
 
 
 func(s *genericWrapper) Backends(ctx context.Context) []string {
-	return s.Backends(ctx)
+	return s.generic.Backends(ctx)
 }
 
 func(s *genericWrapper) Versioner() Versioner {
@@ -115,6 +115,10 @@ func(s *genericWrapper) Delete(ctx context.Context, key string, out runtime.Obje
 }
 
 func(s *genericWrapper) Watch(ctx context.Context, key string, resourceVersion string, filter FilterFunc) (watch.Interface, error) {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	key = s.prefixKey(key)
 	raw, err := s.generic.Watch(ctx, key, resourceVersion)
 	if err != nil {
 		return nil, err
@@ -123,6 +127,10 @@ func(s *genericWrapper) Watch(ctx context.Context, key string, resourceVersion s
 }
 
 func(s *genericWrapper) WatchList(ctx context.Context, key string, resourceVersion string, filter FilterFunc) (watch.Interface, error) {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	key = s.prefixKey(key)
 	raw, err := s.generic.WatchList(ctx, key, resourceVersion)
 	if err != nil {
 		return nil, err
@@ -132,6 +140,10 @@ func(s *genericWrapper) WatchList(ctx context.Context, key string, resourceVersi
 
 
 func(s *genericWrapper) Get(ctx context.Context, key string, objPtr runtime.Object, ignoreNotFound bool) error {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	key = s.prefixKey(key)
 	var raw generic.RawObject
 	err := s.generic.Get(ctx, key, &raw)
 	if err != nil {
@@ -142,6 +154,10 @@ func(s *genericWrapper) Get(ctx context.Context, key string, objPtr runtime.Obje
 }
 
 func(s *genericWrapper) GetToList(ctx context.Context, key string, filter FilterFunc, listObj runtime.Object) error {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	key = s.prefixKey(key)
 	rawList := make([]generic.RawObject,0)
 	listVersion, err := s.generic.GetToList(ctx, key, &rawList)
 	if err != nil {
@@ -151,6 +167,10 @@ func(s *genericWrapper) GetToList(ctx context.Context, key string, filter Filter
 }
 
 func(s *genericWrapper) List(ctx context.Context, key string, resourceVersion string, filter FilterFunc, listObj runtime.Object) error {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	key = s.prefixKey(key)
 	rawList := make([]generic.RawObject,0)
 	listVersion, err := s.generic.List(ctx, key, resourceVersion, &rawList)
 	if err != nil {
@@ -325,6 +345,15 @@ func(w *genericWatcher) run() {
 				if len(evIn.Raw.Data) > 0 {
 					obj, err := runtime.Decode(w.storage.codec, evIn.Raw.Data)
 					if err != nil {
+						//TODO: glog
+						continue
+					}
+					var expiration *time.Time
+					if evIn.Raw.TTL != 0 {
+						NewExpiration := time.Now().UTC().Add( time.Duration(evIn.Raw.TTL) * time.Second )
+						expiration = &NewExpiration
+					}
+					if err := w.storage.versioner.UpdateObject(obj, expiration, evIn.Raw.Version); err != nil {
 						//TODO: glog
 						continue
 					}
