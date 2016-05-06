@@ -263,8 +263,8 @@ func (kc *kube2consul) handleServiceRemove(obj interface{}) {
 	}
 }
 
-func (kc *kube2consul) storeKV(name string, volumes json) {
-	value := fmt.Sprintf("%s", volumes)
+func (kc *kube2consul) storeKV(name string, data json) {
+	value := fmt.Sprintf("%s", data)
 	p := &consulApi.KVPair{Key: name, Value: value}
 	kc.consulKV.Put(p, nil)
 }
@@ -300,12 +300,60 @@ func (kc *kube2consul) handlePodRemove(obj interface{}) {
 }
 
 func (kc *kube2consul) handleEndpointAdd(obj interface{}) {
+	ks.mlock.Lock()
+	defer ks.mlock.Unlock()
+	svc, err := ks.getServiceFromEndpoints(e)
+	if err != nil {
+		return err
+	}
+	if svc == nil || kapi.IsServiceIPSet(svc) {
+		// No headless service found corresponding to endpoints object.
+		return nil
+	}
+	if e, ok := obj.(*kapi.Endpoints); ok {
+		endpointsData := json.Marshal(e)
+		name := fmt.Sprintf("kube2consul-endpoints-%s", svc.Name)
+		value := fmt.Sprintf("%s", endpointsData)
+		kc.storeKV(name, value)
+	}
 }
 
-func (kc *kube2consul) handleEndpointUpdate(old interface{}, new interface{}) {
+func (kc *kube2consul) handleEndpointUpdate(old interface{}, newObj interface{}) {
+	ks.mlock.Lock()
+	defer ks.mlock.Unlock()
+	svc, err := ks.getServiceFromEndpoints(e)
+	if err != nil {
+		return err
+	}
+	if svc == nil || kapi.IsServiceIPSet(svc) {
+		// No headless service found corresponding to endpoints object.
+		return nil
+	}
+	if e, ok := newObj.(*kapi.Endpoints); ok {
+		endpointsData := json.Marshal(e)
+		name := fmt.Sprintf("kube2consul-endpoints-%s", svc.Name)
+		value := fmt.Sprintf("%s", endpointsData)
+		kc.storeKV(name, value)
+	}
 }
 
 func (kc *kube2consul) handleEndpointRemove(obj interface{}) {
+	ks.mlock.Lock()
+	defer ks.mlock.Unlock()
+	svc, err := ks.getServiceFromEndpoints(e)
+	if err != nil {
+		return err
+	}
+	if svc == nil || kapi.IsServiceIPSet(svc) {
+		// No headless service found corresponding to endpoints object.
+		return nil
+	}
+	if e, ok := newObj.(*kapi.Endpoints); ok {
+		if e == nil {
+			name := fmt.Sprintf("kube2consul-endpoints-%s", svc.Name)
+			kc.deleteKV(name)
+		}
+	}
 }
 
 func watchEndpoints(kubeClient *kclient.Client, kc *kube2consul) kcache.Store {
