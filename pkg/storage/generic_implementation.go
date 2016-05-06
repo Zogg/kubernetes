@@ -17,6 +17,8 @@ import (
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage/generic"
 	"k8s.io/kubernetes/pkg/util"
+	utilcache "k8s.io/kubernetes/pkg/util/cache"
+	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
 	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/golang/glog"
@@ -29,7 +31,11 @@ type genericWrapper struct {
 	codec       runtime.Codec
 	copier      runtime.ObjectCopier
 	pathPrefix  string
+	cache utilcache.Cache
 }
+
+const maxKvCacheEntries int = 50000
+
 
 func NewGenericWrapper(raw generic.InterfaceRaw, codec runtime.Codec, prefix string) Interface {
 	return &genericWrapper{
@@ -38,6 +44,7 @@ func NewGenericWrapper(raw generic.InterfaceRaw, codec runtime.Codec, prefix str
 		codec:      codec,
 		copier:     api.Scheme,
 		pathPrefix: path.Join("/", prefix),
+		cache:      utilcache.NewCache(maxKvCacheEntries),
 	}
 } 
 
@@ -191,20 +198,26 @@ func(s *genericWrapper) outputList(key string, filter FilterFunc, listObj runtim
 	}
 	var maxIndex uint64
 	for _, raw := range rawList {
-		obj, _, err := s.codec.Decode(raw.Data, nil, reflect.New(v.Type().Elem()).Interface().(runtime.Object))
-		if err != nil {
-			return err
-		}
+		if obj, found := s.getFromCache(raw.Version, filter); found {
+			// obj != nil iff it matches the filter function.
+			if obj != nil {
+				v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
+			}
+		} else {
+			obj, _, err := s.codec.Decode(raw.Data, nil, reflect.New(v.Type().Elem()).Interface().(runtime.Object))
+			if err != nil {
+				return err
+			}
 	
-		// being unable to set the version does not prevent the object from being extracted
-		_ = s.versioner.UpdateObject(obj, nil, raw.Version)
-		if filter(obj) {
-			v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
+			// being unable to set the version does not prevent the object from being extracted
+			_ = s.versioner.UpdateObject(obj, nil, raw.Version)
+			if filter(obj) {
+				v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
+			}
+			if raw.Version != 0 {
+				s.addToCache(raw.Version, obj)
+			}
 		}
-		// TODO: contemplate all the possible meanings of the word 'cache'
-		//if kv.ModifyIndex != 0 {
-		//	s.addToCache(kv.ModifyIndex, obj)
-		//}
 		if maxIndex < raw.Version {
 			maxIndex = raw.Version
 		}
@@ -231,10 +244,10 @@ func(s *genericWrapper) GuaranteedUpdate(ctx context.Context, key string, ptrToT
 	for {
 		obj := reflect.New(v.Type()).Interface().(runtime.Object)
 		raw := generic.RawObject{}
-		if err := s.generic.Get(ctx, key, &raw); err != nil {
+		if err := s.generic.Get(ctx, key, &raw); err != nil && !IsNotFound(err) {
 			return err
 		}
-		if err := s.extractObj(raw, nil, obj, ignoreNotFound); err != nil {
+		if err := s.extractObj(raw, err, obj, ignoreNotFound); err != nil {
 			return err
 		}
 		if err := checkPreconditions(key, raw.Version, preconditions, obj); err != nil {
@@ -262,7 +275,9 @@ func(s *genericWrapper) GuaranteedUpdate(ctx context.Context, key string, ptrToT
 		raw.Data = data
 		succeeded, err := s.generic.Set(ctx, key, &raw)
 		if err != nil {
-			return err
+			if !ignoreNotFound || !IsNotFound(err) {
+				return err
+			}
 		}
 		if succeeded {
 			return nil
@@ -307,9 +322,51 @@ func (s *genericWrapper) prefixKey(key string) string {
 	return path.Join(s.pathPrefix, key)
 }
 
+func (h *genericWrapper) getFromCache(index uint64, filter FilterFunc) (runtime.Object, bool) {
+	//startTime := time.Now()
+	//defer func() {
+	//	metrics.ObserveGetCache(startTime)
+	//}()
+	obj, found := h.cache.Get(index)
+	if found {
+		if !filter(obj.(runtime.Object)) {
+			return nil, true
+		}
+		// We should not return the object itself to avoid polluting the cache if someone
+		// modifies returned values.
+		objCopy, err := h.copier.Copy(obj.(runtime.Object))
+		if err != nil {
+			glog.Errorf("Error during DeepCopy of cached object: %q", err)
+			// We can't return a copy, thus we report the object as not found.
+			return nil, false
+		}
+		//metrics.ObserveCacheHit()
+		return objCopy.(runtime.Object), true
+	}
+	//metrics.ObserveCacheMiss()
+	return nil, false
+}
+
+func (h *genericWrapper) addToCache(index uint64, obj runtime.Object) {
+	//startTime := time.Now()
+	//defer func() {
+	//	metrics.ObserveAddCache(startTime)
+	//}()
+	objCopy, err := h.copier.Copy(obj)
+	if err != nil {
+		glog.Errorf("Error during DeepCopy of cached object: %q", err)
+		return
+	}
+	h.cache.Add(index, objCopy)
+	//isOverwrite := h.cache.Add(index, objCopy)
+	//if !isOverwrite {
+	//	metrics.ObserveNewEntry()
+	//}
+}
+
 type genericWatcher struct {
 	resultChan  chan watch.Event
-	stopChan    chan bool
+	stopChan    chan struct{}
 	stopped     uint32
 	raw         generic.InterfaceRawWatch
 	storage     *genericWrapper
@@ -317,8 +374,8 @@ type genericWatcher struct {
 
 func newGenericWatcher(raw generic.InterfaceRawWatch, storage *genericWrapper, filter FilterFunc) *genericWatcher {
 	ret := &genericWatcher{
-		resultChan: make(chan watch.Event),
-		stopChan:   make(chan bool),
+		resultChan: make(chan watch.Event, 100),
+		stopChan:   make(chan struct{}),
 		raw:        raw,
 		storage:    storage,
 	}
@@ -343,15 +400,15 @@ func(w *genericWatcher) run() {
 				//	decode evIn.Raw.Data without storage.codec
 				//} else
 				if len(evIn.Raw.Data) > 0 {
-					obj, err := runtime.Decode(w.storage.codec, evIn.Raw.Data)
-					if err != nil {
-						//TODO: glog
-						continue
-					}
 					var expiration *time.Time
 					if evIn.Raw.TTL != 0 {
 						NewExpiration := time.Now().UTC().Add( time.Duration(evIn.Raw.TTL) * time.Second )
 						expiration = &NewExpiration
+					}
+					obj, err := w.decodeObject(&evIn.Raw, expiration)
+					if err != nil {
+						//TODO: glog
+						continue
 					}
 					if err := w.storage.versioner.UpdateObject(obj, expiration, evIn.Raw.Version); err != nil {
 						//TODO: glog
@@ -364,11 +421,13 @@ func(w *genericWatcher) run() {
 					w.resultChan<-evOut
 					return
 				}
-				select {
-					case <-w.stopChan:
-						return
-						
-					case w.resultChan<-evOut:
+				if evOut.Type != "" { 
+					select {
+						case <-w.stopChan:
+							return
+					
+						case w.resultChan<-evOut:
+					}
 				}
 		}
 	}
@@ -376,13 +435,44 @@ func(w *genericWatcher) run() {
 
 func(w *genericWatcher) cleanup() {
 	close(w.resultChan)
-	close(w.stopChan)
+	//close(w.stopChan)
+}
+
+func (w *genericWatcher) decodeObject(raw *generic.RawObject, expiration *time.Time) (runtime.Object, error) {
+	if obj, found := w.storage.getFromCache(raw.Version, Everything); found {
+		return obj, nil
+	}
+
+	obj, err := runtime.Decode(w.storage.codec, raw.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	// ensure resource version is set on the object we load from etcd
+	if err := w.storage.versioner.UpdateObject(obj, expiration, raw.Version); err != nil {
+		utilruntime.HandleError(fmt.Errorf("failure to version api object (%d) %#v: %v", raw.Version, obj, err))
+	}
+
+	// perform any necessary transformation
+	//if w.transform != nil {
+	//	obj, err = w.transform(obj)
+	//	if err != nil {
+	//		utilruntime.HandleError(fmt.Errorf("failure to transform api object %#v: %v", obj, err))
+	//		return nil, err
+	//	}
+	//}
+
+	if raw.Version != 0 {
+		w.storage.addToCache(raw.Version, obj)
+	}
+	return obj, nil
+
 }
 
 func(w *genericWatcher) Stop() {
 	if atomic.SwapUint32( &w.stopped, 1 ) == 0 {
 		w.raw.Stop()
-		//w.stopChan <- true
+		close(w.stopChan)
 	}
 }
 
