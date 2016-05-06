@@ -191,7 +191,7 @@ func(s *etcdLowLevel) Set(ctx context.Context, key string, raw *generic.RawObjec
 	response, err := s.etcdKeysAPI.Set(ctx, key, string(raw.Data), &opts)
 	copyResponse(response, raw, false)
 	if err != nil {
-		if etcdutil.IsEtcdTestFailed(err) {
+		if etcdutil.IsEtcdTestFailed(err) || (raw.Version == 0 && etcdutil.IsEtcdNodeExist(err)) {
 			return false, nil
 		}
 		return false, toStorageErr(err, key, 0)
