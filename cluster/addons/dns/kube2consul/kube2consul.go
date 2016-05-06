@@ -21,6 +21,7 @@ package main
 
 import (
 	"fmt"
+	"json"
 	"net/http"
 	"os"
 	"os/signal"
@@ -133,6 +134,7 @@ func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
 	}
 	return nil
 }
+
 func (kc *kube2consul) removeDNS(record string) error {
 	glog.V(2).Infof("Removing %s from DNS", record)
 	return kc.consulAgent.ServiceDeregister(record)
@@ -244,7 +246,8 @@ func (kc *kube2consul) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service
 func (kc *kube2consul) handleServiceAdd(obj interface{}) {
 	if s, ok := obj.(*kapi.Service); ok {
 		name := bridge.BuildDNSNameString(kc.domain, serviceSubdomain, s.Namespace, s.Name)
-		if err := kc.addDNS(s.Name, s); err != nil {
+		serviceName := fmt.Sprintf("kube2consul-service-%s", s.Name)
+		if err := kc.addDNS(serviceName, s); err != nil {
 			glog.V(1).Infof("Failed to add service: %v due to: %v", name, err)
 		}
 	}
@@ -253,19 +256,47 @@ func (kc *kube2consul) handleServiceAdd(obj interface{}) {
 func (kc *kube2consul) handleServiceRemove(obj interface{}) {
 	if s, ok := obj.(*kapi.Service); ok {
 		name := bridge.BuildDNSNameString(s.Name, s.Namespace)
-		if err := kc.removeDNS(s.Name); err != nil {
+		serviceName := fmt.Sprintf("kube2consul-service-%s", s.Name)
+		if err := kc.removeDNS(serviceName); err != nil {
 			glog.V(1).Infof("Failed to remove service: %v due to: %v", name, err)
 		}
 	}
 }
 
+func (kc *kube2consul) storeKV(name string, volumes json) {
+	value := fmt.Sprintf("%s", volumes)
+	p := &consulApi.KVPair{Key: name, Value: value}
+	kc.consulKV.Put(p, nil)
+}
+
+func (kc *kube2consul) deleteKV(name string) {
+	kv.consulKV.Delete(name)
+}
+
 func (kc *kube2consul) handlePodCreate(obj interface{}) {
+	if p, ok := obj.(*kapi.Pod); ok {
+		name := p.Name
+		volumes := p.Spec.Volumes
+		podName := fmt.Sprintf("kube2consul-pod-%s", s.Name)
+		kc.storeKV(podName, volumes)
+	}
 }
 
 func (kc *kube2consul) handlePodUpdate(old interface{}, new interface{}) {
+	if p, ok := new.(*kapi.Pod); ok {
+		name := p.Name
+		volumes := p.Spec.Volumes
+		podName := fmt.Sprintf("kube2consul-pod-%s", s.Name)
+		kc.storeKV(podName, volumes)
+	}
 }
 
 func (kc *kube2consul) handlePodRemove(obj interface{}) {
+	if p, ok := new.(*kapi.Pod); ok {
+		name := p.Name
+		podName := fmt.Sprintf("kube2consul-pod-%s", s.Name)
+		kc.deleteKV(podName)
+	}
 }
 
 func (kc *kube2consul) handleEndpointAdd(obj interface{}) {
