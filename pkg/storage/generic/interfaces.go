@@ -17,7 +17,8 @@ type RawObject struct {
 type RawFilterFunc func( raw *RawObject ) (bool, error)
 type RawEvent struct {
 	Type        watch.EventType
-	Raw         RawObject
+	Current     RawObject
+	Previous    RawObject
 	ErrorStatus interface{}
 }
 type InterfaceRawWatch interface {

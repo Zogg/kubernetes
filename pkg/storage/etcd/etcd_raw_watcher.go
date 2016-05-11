@@ -201,7 +201,7 @@ func (w *etcdWatcherRaw) sendAdd(res *etcd.Response) {
 	ev := generic.RawEvent{
 		Type:   action,
 	}
-	copyNode(res.Node, &ev.Raw)
+	copyNode(res.Node, &ev.Current)
 	w.emit(ev)
 }
 
@@ -216,7 +216,8 @@ func (w *etcdWatcherRaw) sendModify(res *etcd.Response) {
 	ev := generic.RawEvent{
 		Type:   watch.Modified,
 	}
-	copyNode(res.Node, &ev.Raw)
+	copyNode(res.Node, &ev.Current)
+	copyNode(res.PrevNode, &ev.Previous)
 	w.emit(ev)
 }
 
@@ -238,7 +239,7 @@ func (w *etcdWatcherRaw) sendDelete(res *etcd.Response) {
 	ev := generic.RawEvent{
 		Type:   watch.Deleted,
 	}
-	copyNode(&node, &ev.Raw)
+	copyNode(&node, &ev.Previous)
 	w.emit(ev)
 }
 

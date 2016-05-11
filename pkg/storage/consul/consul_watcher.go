@@ -11,8 +11,8 @@ import (
 	//"time"
   
 	//"k8s.io/kubernetes/pkg/conversion"
-	"k8s.io/kubernetes/pkg/runtime"
-	//"k8s.io/kubernetes/pkg/storage"
+	//"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/storage/generic"
 	// TODO: relocate APIObjectVersioner to storage.APIObjectVersioner_uint64
 	//"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
 	"k8s.io/kubernetes/pkg/watch"
@@ -27,14 +27,14 @@ type retainedValue struct {
 
 type consulWatch struct {
 	stopChan    chan bool
-	resultChan  chan watch.Event
+	resultChan  chan generic.RawEvent
 	storage     *ConsulKvStorage
 	stopLock    sync.Mutex
 	stopped     bool
-	emit        func(watch.Event) bool
+	emit        func(generic.RawEvent) bool
 }
 
-func nullEmitter(w watch.Event) bool {
+func nullEmitter(w generic.RawEvent) bool {
 	return false
 }
 
@@ -46,11 +46,11 @@ func(s *ConsulKvStorage) newConsulWatch(key string, version uint64, deep bool) (
 		}
 		w := &consulWatch{
 			stopChan:   make( chan bool, 1 ),
-			resultChan: make( chan watch.Event ),
+			resultChan: make( chan generic.RawEvent ),
 			storage:    s,
 			stopped:    false,
 		}
-		w.emit = func(ev watch.Event) bool {
+		w.emit = func(ev generic.RawEvent) bool {
 			select {
 				case <-w.stopChan:
 					return false
@@ -71,11 +71,11 @@ func(s *ConsulKvStorage) newConsulWatch(key string, version uint64, deep bool) (
 		}
 		w := &consulWatch{
 			stopChan:   make( chan bool, 1 ),
-			resultChan: make( chan watch.Event ),
+			resultChan: make( chan generic.RawEvent ),
 			storage:    s,
 			stopped:    false,
 		}
-		w.emit = func(ev watch.Event) bool {
+		w.emit = func(ev generic.RawEvent) bool {
 			select {
 				case <-w.stopChan:
 					return false
@@ -114,15 +114,15 @@ func(w *consulWatch) watchDeep(key string, version uint64, kvsLast []*consulapi.
 		j := 0
 		for _, kv := range kvs {
 			for ; j < len(kvsLast) && kvsLast[j].Key < kv.Key; j++ {
-				cont = w.emitEvent( watch.Deleted, kvsLast[j] )
+				cont = w.emitEvent( watch.Deleted, nil, kvsLast[j] )
 			}
 
 			kvLast := kvsLast[j]
 			
 			if kv.Key != kvLast.Key {
-				cont = w.emitEvent( watch.Added, kv )
+				cont = w.emitEvent( watch.Added, kv, nil )
 			} else if kv.ModifyIndex > version {
-				cont = w.emitEvent( watch.Modified, kv )
+				cont = w.emitEvent( watch.Modified, kv, kvsLast[j] )
 			}
 					
 			if !cont {
@@ -150,14 +150,36 @@ func(w *consulWatch) watchSingle(key string, version uint64, kvLast *consulapi.K
 	versionNext := version
 	for cont {
 		if kv == nil && kvLast != nil {
-			cont = w.emitEvent( watch.Deleted, kvLast )
+			cont = w.emit( generic.RawEvent{
+					Type: watch.Deleted,
+					Previous: generic.RawObject{
+						Data:     kvLast.Value,
+						Version:  kvLast.ModifyIndex,
+					},
+			} )
 		}
 		if kv != nil {
 			if kv.ModifyIndex > version {
-				if kv.CreateIndex > version {
-					cont = w.emitEvent( watch.Added, kv )
+				if kv.CreateIndex > version || kvLast == nil {
+					cont = w.emit( generic.RawEvent{
+							Type: watch.Added,
+							Current:  generic.RawObject{
+								Data:     kv.Value,
+								Version:  kv.ModifyIndex,
+							},
+					} )
 				} else {
-					cont = w.emitEvent( watch.Modified, kv )
+					cont = w.emit( generic.RawEvent{
+							Type: watch.Modified,
+							Current:  generic.RawObject{
+								Data:     kv.Value,
+								Version:  kv.ModifyIndex,
+							},
+							Previous: generic.RawObject{
+								Data:     kvLast.Value,
+								Version:  kvLast.ModifyIndex,
+							},
+					} )
 				}
 			}
 		}
@@ -184,19 +206,27 @@ func(w *consulWatch) clean() {
 	close(w.resultChan)
 }
 
-func(w *consulWatch) emitEvent( action watch.EventType, kv *consulapi.KVPair ) bool {
-	if kv != nil {
-		obj, err := runtime.Decode(w.storage.codec, kv.Value)
-		if err != nil {
-			return !w.stopped
-		}
-		return w.emit( watch.Event{ Type: action, Object: obj } )
+func(w *consulWatch) emitEvent( action watch.EventType, kvCur *consulapi.KVPair, kvPrev *consulapi.KVPair ) bool {
+	event := generic.RawEvent{
+		Type: action,
 	}
+	if kvCur != nil {
+		event.Current.Data = kvCur.Value
+		event.Current.Version = kvCur.ModifyIndex
+	}
+	if kvPrev != nil {
+		event.Previous.Data = kvPrev.Value
+		event.Previous.Version = kvPrev.ModifyIndex
+	}
+	w.emit(event)
 	return !w.stopped
 }
 
 func(w *consulWatch) emitError( key string, err error ) {
-	
+	w.emit( generic.RawEvent{
+			Type:           watch.Error,
+			ErrorStatus:    err,
+	} )
 }
 
 func(w *consulWatch) Stop() {
@@ -212,6 +242,6 @@ func(w *consulWatch) Stop() {
 	w.stopChan <- true
 }
 
-func(w *consulWatch) ResultChan() <-chan watch.Event {
+func(w *consulWatch) ResultChan() <-chan generic.RawEvent {
 	return w.resultChan
 }
