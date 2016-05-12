@@ -20,7 +20,7 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
+	json "encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -119,11 +119,12 @@ func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
 	}
 
 	for i := range service.Spec.Ports {
+		port := &service.Spec.Ports[i]
 		asr := &consulApi.AgentServiceRegistration{
 			ID:      record,
 			Name:    record,
 			Address: service.Spec.ClusterIP,
-			Port:    service.Spec.Ports[0].Port,
+			Port:    int(port.Port),
 		}
 
 		glog.V(2).Infof("Setting DNS record: %v -> %d\n", record, service.Spec.Ports[i].Port)
@@ -263,55 +264,54 @@ func (kc *kube2consul) handleServiceRemove(obj interface{}) {
 	}
 }
 
-func (kc *kube2consul) storeKV(name string, data json) {
-	value := fmt.Sprintf("%s", data)
-	p := &consulApi.KVPair{Key: name, Value: value}
+func (kc *kube2consul) storeKV(name string, value string) {
+	p := &consulApi.KVPair{Key: name, Value: []byte(value)}
 	kc.consulKV.Put(p, nil)
 }
 
 func (kc *kube2consul) deleteKV(name string) {
-	kv.consulKV.Delete(name)
+	kc.consulKV.Delete(name, nil)
 }
 
 func (kc *kube2consul) handlePodCreate(obj interface{}) {
 	if p, ok := obj.(*kapi.Pod); ok {
 		name := p.Name
 		volumes := p.Spec.Volumes
-		podName := fmt.Sprintf("kube2consul-pod-%s", s.Name)
-		kc.storeKV(podName, volumes)
+		podName := fmt.Sprintf("kube2consul-pod-%s", name)
+		volumesJson, _ := json.Marshal(volumes)
+		volumesStr := fmt.Sprintf("%v", volumesJson)
+		kc.storeKV(podName, volumesStr)
 	}
 }
 
-func (kc *kube2consul) handlePodUpdate(old interface{}, new interface{}) {
-	if p, ok := new.(*kapi.Pod); ok {
+func (kc *kube2consul) handlePodUpdate(old interface{}, newObj interface{}) {
+	if p, ok := newObj.(*kapi.Pod); ok {
 		name := p.Name
 		volumes := p.Spec.Volumes
-		podName := fmt.Sprintf("kube2consul-pod-%s", s.Name)
-		kc.storeKV(podName, volumes)
+		podName := fmt.Sprintf("kube2consul-pod-%s", name)
+		volumesJson, _ := json.Marshal(volumes)
+		volumesStr := fmt.Sprintf("%v", volumesJson)
+		kc.storeKV(podName, volumesStr)
 	}
 }
 
 func (kc *kube2consul) handlePodRemove(obj interface{}) {
-	if p, ok := new.(*kapi.Pod); ok {
+	if p, ok := obj.(*kapi.Pod); ok {
 		name := p.Name
-		podName := fmt.Sprintf("kube2consul-pod-%s", s.Name)
+		podName := fmt.Sprintf("kube2consul-pod-%s", name)
 		kc.deleteKV(podName)
 	}
 }
 
 func (kc *kube2consul) handleEndpointAdd(obj interface{}) {
-	ks.mlock.Lock()
-	defer ks.mlock.Unlock()
-	svc, err := ks.getServiceFromEndpoints(e)
-	if err != nil {
-		return err
-	}
-	if svc == nil || kapi.IsServiceIPSet(svc) {
-		// No headless service found corresponding to endpoints object.
-		return nil
-	}
+	kc.mlock.Lock()
+	defer kc.mlock.Unlock()
 	if e, ok := obj.(*kapi.Endpoints); ok {
-		endpointsData := json.Marshal(e)
+		svc, err := kc.getServiceFromEndpoints(e)
+		if err != nil || svc == nil || kapi.IsServiceIPSet(svc) {
+			glog.V(1).Infof("Failed to get endpoint from %v", e.Name)
+		}
+		endpointsData, _ := json.Marshal(e)
 		name := fmt.Sprintf("kube2consul-endpoints-%s", svc.Name)
 		value := fmt.Sprintf("%s", endpointsData)
 		kc.storeKV(name, value)
@@ -319,38 +319,32 @@ func (kc *kube2consul) handleEndpointAdd(obj interface{}) {
 }
 
 func (kc *kube2consul) handleEndpointUpdate(old interface{}, newObj interface{}) {
-	ks.mlock.Lock()
-	defer ks.mlock.Unlock()
-	svc, err := ks.getServiceFromEndpoints(e)
-	if err != nil {
-		return err
-	}
-	if svc == nil || kapi.IsServiceIPSet(svc) {
-		// No headless service found corresponding to endpoints object.
-		return nil
-	}
+	kc.mlock.Lock()
+	defer kc.mlock.Unlock()
 	if e, ok := newObj.(*kapi.Endpoints); ok {
-		endpointsData := json.Marshal(e)
-		name := fmt.Sprintf("kube2consul-endpoints-%s", svc.Name)
+		svc, err := kc.getServiceFromEndpoints(e)
+		if err != nil || svc == nil || kapi.IsServiceIPSet(svc) {
+			// No headless service found corresponding to endpoints object.
+			glog.V(1).Infof("Failed to get service from %v", e.Name)
+		}
+		endpointsData, _ := json.Marshal(e)
+		name := fmt.Sprintf("kube2consul-endpoints-%v", svc.Name)
 		value := fmt.Sprintf("%s", endpointsData)
 		kc.storeKV(name, value)
 	}
 }
 
 func (kc *kube2consul) handleEndpointRemove(obj interface{}) {
-	ks.mlock.Lock()
-	defer ks.mlock.Unlock()
-	svc, err := ks.getServiceFromEndpoints(e)
-	if err != nil {
-		return err
-	}
-	if svc == nil || kapi.IsServiceIPSet(svc) {
-		// No headless service found corresponding to endpoints object.
-		return nil
-	}
-	if e, ok := newObj.(*kapi.Endpoints); ok {
+	kc.mlock.Lock()
+	defer kc.mlock.Unlock()
+	if e, ok := obj.(*kapi.Endpoints); ok {
+		svc, err := kc.getServiceFromEndpoints(e)
+		if err != nil || svc == nil || kapi.IsServiceIPSet(svc) {
+			// No headless service found corresponding to endpoints object.
+			glog.V(1).Infof("Failed to remove endpoint from %v", e.Name)
+		}
 		if e == nil {
-			name := fmt.Sprintf("kube2consul-endpoints-%s", svc.Name)
+			name := fmt.Sprintf("kube2consul-endpoints-%v", svc.Name)
 			kc.deleteKV(name)
 		}
 	}
