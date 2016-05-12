@@ -43,11 +43,21 @@ func conversionNamer() *namer.NameStrategy {
 	}
 }
 
+func defaultFnNamer() *namer.NameStrategy {
+	return &namer.NameStrategy{
+		Prefix: "SetDefaults_",
+		Join: func(pre string, in []string, post string) string {
+			return pre + strings.Join(in, "_") + post
+		},
+	}
+}
+
 // NameSystems returns the name system used by the generators in this package.
 func NameSystems() namer.NameSystems {
 	return namer.NameSystems{
-		"public": conversionNamer(),
-		"raw":    namer.NewRawNamer("", nil),
+		"public":    conversionNamer(),
+		"raw":       namer.NewRawNamer("", nil),
+		"defaultfn": defaultFnNamer(),
 	}
 }
 
@@ -60,6 +70,8 @@ func DefaultNameSystem() string {
 var fallbackPackages = []string{
 	"k8s.io/kubernetes/pkg/api/unversioned",
 	"k8s.io/kubernetes/pkg/apis/extensions",
+	"k8s.io/kubernetes/pkg/apis/autoscaling",
+	"k8s.io/kubernetes/pkg/apis/batch",
 }
 
 func getInternalTypeFor(context *generator.Context, t *types.Type) (*types.Type, bool) {
@@ -125,7 +137,64 @@ func existingConversionFunctions(context *generator.Context) conversions {
 			args := argsFromType(inType.Elem, outType.Elem)
 			sw.Do("Convert_$.inType|public$_To_$.outType|public$", args)
 			if f.Name.Name == buffer.String() {
-				preexisting[conversionType{inType.Elem, outType.Elem}] = f
+				key := conversionType{inType.Elem, outType.Elem}
+				if v, ok := preexisting[key]; ok && v != nil {
+					panic(fmt.Sprintf("duplicate static conversion defined: %#v", key))
+				}
+				preexisting[key] = f
+			}
+			buffer.Reset()
+		}
+	}
+	return preexisting
+}
+
+// All of the types in conversions map are of type "DeclarationOf" with
+// the underlying type being "Func".
+type defaulters map[*types.Type]*types.Type
+
+// Returns all already existing defaulting functions that we are able to find.
+func existingDefaultingFunctions(context *generator.Context) defaulters {
+	buffer := &bytes.Buffer{}
+	sw := generator.NewSnippetWriter(buffer, context, "$", "$")
+
+	preexisting := make(defaulters)
+	for _, p := range context.Universe {
+		for _, f := range p.Functions {
+			if f.Underlying == nil || f.Underlying.Kind != types.Func {
+				glog.Errorf("Malformed function: %#v", f)
+				continue
+			}
+			if f.Underlying.Signature == nil {
+				glog.Errorf("Function without signature: %#v", f)
+				continue
+			}
+			signature := f.Underlying.Signature
+			// Check whether the function is conversion function.
+			// Note that all of them have signature:
+			// func Convert_inType_To_outType(inType, outType, conversion.Scope) error
+			if signature.Receiver != nil {
+				continue
+			}
+			if len(signature.Parameters) != 1 {
+				continue
+			}
+			if len(signature.Results) != 0 {
+				continue
+			}
+			inType := signature.Parameters[0]
+			if inType.Kind != types.Pointer {
+				continue
+			}
+			// Now check if the name satisfies the convention.
+			args := defaultingArgsFromType(inType.Elem)
+			sw.Do("$.inType|defaultfn$", args)
+			if f.Name.Name == buffer.String() {
+				key := inType.Elem
+				if v, ok := preexisting[key]; ok && v != nil {
+					panic(fmt.Sprintf("duplicate static defaulter defined: %#v", key))
+				}
+				preexisting[key] = f
 			}
 			buffer.Reset()
 		}
@@ -153,6 +222,7 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 
 	// Compute all pre-existing conversion functions.
 	preexisting := existingConversionFunctions(context)
+	preexistingDefaults := existingDefaultingFunctions(context)
 
 	// We are generating conversions only for packages that are explicitly
 	// passed as InputDir, and only for those that have a corresponding type
@@ -204,7 +274,7 @@ func Packages(context *generator.Context, arguments *args.GeneratorArgs) generat
 					GeneratorFunc: func(c *generator.Context) (generators []generator.Generator) {
 						generators = []generator.Generator{}
 						generators = append(
-							generators, NewGenConversion("conversion_generated", path, preexisting))
+							generators, NewGenConversion("conversion_generated", path, preexisting, preexistingDefaults))
 						return generators
 					},
 					FilterFunc: func(c *generator.Context, t *types.Type) bool {
@@ -307,17 +377,19 @@ type genConversion struct {
 	generator.DefaultGen
 	targetPackage string
 	preexisting   conversions
+	defaulters    defaulters
 	imports       namer.ImportTracker
 	typesForInit  []conversionType
 }
 
-func NewGenConversion(sanitizedName, targetPackage string, preexisting conversions) generator.Generator {
+func NewGenConversion(sanitizedName, targetPackage string, preexisting conversions, defaulters defaulters) generator.Generator {
 	return &genConversion{
 		DefaultGen: generator.DefaultGen{
 			OptionalName: sanitizedName,
 		},
 		targetPackage: targetPackage,
 		preexisting:   preexisting,
+		defaulters:    defaulters,
 		imports:       generator.NewImportTracker(),
 		typesForInit:  make([]conversionType, 0),
 	}
@@ -387,7 +459,7 @@ func (g *genConversion) isOtherPackage(pkg string) bool {
 }
 
 func (g *genConversion) Imports(c *generator.Context) (imports []string) {
-	importLines := []string{"reflect \"reflect\""}
+	var importLines []string
 	if g.isOtherPackage(apiPackagePath) {
 		importLines = append(importLines, "api \""+apiPackagePath+"\"")
 	}
@@ -409,6 +481,11 @@ func argsFromType(inType, outType *types.Type) interface{} {
 	}
 }
 
+func defaultingArgsFromType(inType *types.Type) interface{} {
+	return map[string]interface{}{
+		"inType": inType,
+	}
+}
 func (g *genConversion) funcNameTmpl(inType, outType *types.Type) string {
 	tmpl := "Convert_$.inType|public$_To_$.outType|public$"
 	g.imports.AddType(inType)
@@ -460,9 +537,11 @@ func (g *genConversion) generateConversion(inType, outType *types.Type, sw *gene
 	} else {
 		sw.Do(fmt.Sprintf("func auto%s(in *$.inType|raw$, out *$.outType|raw$, s conversion.Scope) error {\n", funcName), argsFromType(inType, outType))
 	}
-	sw.Do("if defaulting, found := s.DefaultingInterface(reflect.TypeOf(*in)); found {\n", nil)
-	sw.Do("defaulting.(func(*$.|raw$))(in)\n", inType)
-	sw.Do("}\n", nil)
+	// if no defaulter of form SetDefaults_XXX is defined, do not inline a check for defaulting.
+	if function, ok := g.defaulters[inType]; ok {
+		sw.Do("$.|raw$(in)\n", function)
+	}
+
 	g.generateFor(inType, outType, sw)
 	sw.Do("return nil\n", nil)
 	sw.Do("}\n\n", nil)

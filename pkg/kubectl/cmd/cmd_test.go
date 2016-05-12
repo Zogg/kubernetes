@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"reflect"
 	"testing"
@@ -47,6 +48,21 @@ func initTestErrorHandler(t *testing.T) {
 	cmdutil.BehaviorOnFatal(func(str string) {
 		t.Errorf("Error running command: %s", str)
 	})
+}
+
+func defaultHeader() http.Header {
+	header := http.Header{}
+	header.Set("Content-Type", runtime.ContentTypeJSON)
+	return header
+}
+
+func defaultClientConfig() *restclient.Config {
+	return &restclient.Config{
+		ContentConfig: restclient.ContentConfig{
+			ContentType:  runtime.ContentTypeJSON,
+			GroupVersion: testapi.Default.GroupVersion(),
+		},
+	}
 }
 
 type internalType struct {
@@ -151,12 +167,14 @@ func (t *testPrinter) HandledResources() []string {
 
 type testDescriber struct {
 	Name, Namespace string
+	Settings        kubectl.DescriberSettings
 	Output          string
 	Err             error
 }
 
-func (t *testDescriber) Describe(namespace, name string) (output string, err error) {
+func (t *testDescriber) Describe(namespace, name string, describerSettings kubectl.DescriberSettings) (output string, err error) {
 	t.Namespace, t.Name = namespace, name
+	t.Settings = describerSettings
 	return t.Output, t.Err
 }
 
@@ -311,7 +329,6 @@ func NewAPIFactory() (*cmdutil.Factory, *testFactory, runtime.Codec) {
 		},
 	}
 	rf := cmdutil.NewFactory(nil)
-	f.PodSelectorForObject = rf.PodSelectorForObject
 	f.MapBasedSelectorForObject = rf.MapBasedSelectorForObject
 	f.PortsForObject = rf.PortsForObject
 	f.LabelsForObject = rf.LabelsForObject
@@ -766,8 +783,8 @@ func Example_printServiceWithNamespacesAndLabels() {
 	}
 	// Output:
 	// |NAMESPACE   NAME      CLUSTER-IP   EXTERNAL-IP   PORT(S)           AGE       L1|
-	// |ns1         svc1      10.1.1.1     unknown       53/UDP,53/TCP     10y       value|
-	// |ns2         svc2      10.1.1.2     unknown       80/TCP,8080/TCP   10y       dolla-bill-yall|
+	// |ns1         svc1      10.1.1.1     <unknown>     53/UDP,53/TCP     10y       value|
+	// |ns2         svc2      10.1.1.2     <unknown>     80/TCP,8080/TCP   10y       dolla-bill-yall|
 	// ||
 }
 

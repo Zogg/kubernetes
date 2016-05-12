@@ -28,6 +28,7 @@ import (
 type TestContextType struct {
 	KubeConfig            string
 	KubeContext           string
+	KubeAPIContentType    string
 	KubeVolumeDir         string
 	CertDir               string
 	Host                  string
@@ -57,6 +58,8 @@ type TestContextType struct {
 	// It accepts namespace base name, which will be prepended with e2e prefix, kube client
 	// and labels to be applied to a namespace.
 	CreateTestingNS CreateTestingNSFn
+	// If set to true test will dump data about the namespace in which test was running.
+	DumpLogsOnFailure bool
 }
 
 type CloudConfig struct {
@@ -90,6 +93,7 @@ func RegisterFlags() {
 
 	flag.StringVar(&TestContext.KubeConfig, clientcmd.RecommendedConfigPathFlag, os.Getenv(clientcmd.RecommendedConfigPathEnvVar), "Path to kubeconfig containing embedded authinfo.")
 	flag.StringVar(&TestContext.KubeContext, clientcmd.FlagContext, "", "kubeconfig context to use/override. If unset, will use value from 'current-context'")
+	flag.StringVar(&TestContext.KubeAPIContentType, "kube-api-content-type", "", "ContentType used to communicate with apiserver")
 	flag.StringVar(&TestContext.KubeVolumeDir, "volume-dir", "/var/lib/kubelet", "Path to the directory containing the kubelet volumes.")
 	flag.StringVar(&TestContext.CertDir, "cert-dir", "", "Path to the directory containing the certs. Default is empty, which doesn't use certs.")
 	flag.StringVar(&TestContext.Host, "host", "", "The host, or apiserver, to connect to")
@@ -123,4 +127,5 @@ func RegisterFlags() {
 	flag.BoolVar(&TestContext.GatherLogsSizes, "gather-logs-sizes", false, "If set to true framework will be monitoring logs sizes on all machines running e2e tests.")
 	flag.BoolVar(&TestContext.GatherMetricsAfterTest, "gather-metrics-at-teardown", false, "If set to true framwork will gather metrics from all components after each test.")
 	flag.StringVar(&TestContext.OutputPrintType, "output-print-type", "hr", "Comma separated list: 'hr' for human readable summaries 'json' for JSON ones.")
+	flag.BoolVar(&TestContext.DumpLogsOnFailure, "dump-logs-on-failure", true, "If set to true test will dump data about the namespace in which test was running.")
 }
