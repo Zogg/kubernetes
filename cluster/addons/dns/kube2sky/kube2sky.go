@@ -185,7 +185,7 @@ func (ks *kube2sky) generateRecordsForHeadlessService(subdomain string, e *kapi.
 				endpointPort := &e.Subsets[idx].Ports[portIdx]
 				portSegment := bridge.BuildPortSegmentString(endpointPort.Name, endpointPort.Protocol)
 				if portSegment != "" {
-					err := ks.generateSRVRecord(subdomain, portSegment, recordLabel, recordKey, endpointPort.Port)
+					err := ks.generateSRVRecord(subdomain, portSegment, recordLabel, recordKey, int(endpointPort.Port))
 					if err != nil {
 						return err
 					}
@@ -312,7 +312,7 @@ func (ks *kube2sky) generateRecordsForPortalService(subdomain string, service *k
 		port := &service.Spec.Ports[i]
 		portSegment := bridge.BuildPortSegmentString(port.Name, port.Protocol)
 		if portSegment != "" {
-			err = ks.generateSRVRecord(subdomain, portSegment, recordLabel, subdomain, port.Port)
+			err = ks.generateSRVRecord(subdomain, portSegment, recordLabel, subdomain, int(port.Port))
 			if err != nil {
 				return err
 			}
