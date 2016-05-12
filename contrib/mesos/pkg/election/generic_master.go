@@ -6,6 +6,7 @@ import (
 	"time"
 	
 	//"k8s.io/kubernetes/pkg/api/unversioned"
+	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/generic"
 	"k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/watch"
@@ -110,6 +111,9 @@ func (e *genericMasterElector) handleMaster(path, id string, ttl uint64) (string
 
 	// Unexpected error, bail out
 	if err != nil {
+		if storage.IsNotFound(err) {
+			return e.becomeMaster(path, id, ttl)
+		}
 		return "", err
 	}
 

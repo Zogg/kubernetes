@@ -43,7 +43,7 @@ import (
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	
-	"k8s.io/kubernetes/pkg/storage/consul"
+	//"k8s.io/kubernetes/pkg/storage/consul"
 )
 
 // storage.Config object for etcd.
@@ -133,16 +133,18 @@ func NewEtcdStorage(client etcd.Client, codec runtime.Codec, prefix string, quor
 	//	quorum:         quorum,
 	//	cache:          utilcache.NewCache(maxEtcdCacheEntries),
 	//}
-	config := &consul.ConsulKvStorageConfig{
-		Config:         consul.ConsulConfig{
-			WaitTimeout:    10 * time.Second,			
-		},
-		Codec:          codec,
-		Prefix:         prefix,
-	}
-	stor, _ := config.NewStorage()
-	return stor
-	//return storage.NewGenericWrapper(NewEtcdRawStorage(client, quorum), codec, prefix)
+	
+	//config := &consul.ConsulKvStorageConfig{
+	//	Config:         consul.ConsulConfig{
+	//		WaitTimeout:    10 * time.Second,			
+	//	},
+	//	Codec:          codec,
+	//	Prefix:         prefix,
+	//}
+	//stor, _ := config.NewStorage()
+	//return stor
+	
+	return storage.NewGenericWrapper(NewEtcdRawStorage(client, quorum), codec, prefix)
 }
 
 // etcdHelper is the reference implementation of storage.Interface.

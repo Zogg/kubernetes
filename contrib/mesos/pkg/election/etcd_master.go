@@ -25,7 +25,7 @@ import (
 	"golang.org/x/net/context"
 
 	"k8s.io/kubernetes/pkg/api/unversioned"
-	"k8s.io/kubernetes/pkg/storage/consul"
+	//"k8s.io/kubernetes/pkg/storage/consul"
 	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
 	"k8s.io/kubernetes/pkg/util/wait"
 	"k8s.io/kubernetes/pkg/watch"
@@ -42,12 +42,12 @@ func (obj Master) GetObjectKind() unversioned.ObjectKind { return unversioned.Em
 
 // NewEtcdMasterElector returns an implementation of election.MasterElector backed by etcd.
 func NewEtcdMasterElector(h etcd.Client) MasterElector {
-	config := &consul.ConsulConfig{
-		WaitTimeout:    10 * time.Second,
-	}
-	storage, _ := config.NewRawStorage()
-	return NewGenericMasterElector(storage)
-	//return &etcdMasterElector{etcd: etcd.NewKeysAPI(h)}
+	//config := &consul.ConsulConfig{
+	//	WaitTimeout:    10 * time.Second,
+	//}
+	//storage, _ := config.NewRawStorage()
+	//return NewGenericMasterElector(storage)
+	return &etcdMasterElector{etcd: etcd.NewKeysAPI(h)}
 }
 
 type empty struct{}
