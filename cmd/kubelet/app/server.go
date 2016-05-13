@@ -188,6 +188,10 @@ func UnsecuredKubeletConfig(s *options.KubeletServer) (*KubeletConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	evictionConfig := eviction.Config{
+		PressureTransitionPeriod: s.EvictionPressureTransitionPeriod.Duration,
+		Thresholds:               thresholds,
+	}
 
 	return &KubeletConfig{
 		Address:                   net.ParseIP(s.Address),
@@ -228,6 +232,7 @@ func UnsecuredKubeletConfig(s *options.KubeletServer) (*KubeletConfig, error) {
 		MaxOpenFiles:              s.MaxOpenFiles,
 		MaxPerPodContainerCount:   int(s.MaxPerPodContainerCount),
 		MaxPods:                   int(s.MaxPods),
+		NvidiaGPUs:                int(s.NvidiaGPUs),
 		MinimumGCAge:              s.MinimumGCAge.Duration,
 		Mounter:                   mounter,
 		NetworkPluginName:         s.NetworkPluginName,
@@ -266,8 +271,8 @@ func UnsecuredKubeletConfig(s *options.KubeletServer) (*KubeletConfig, error) {
 		HairpinMode:                    s.HairpinMode,
 		BabysitDaemons:                 s.BabysitDaemons,
 		ExperimentalFlannelOverlay:     s.ExperimentalFlannelOverlay,
-		NodeIP:     net.ParseIP(s.NodeIP),
-		Thresholds: thresholds,
+		NodeIP:         net.ParseIP(s.NodeIP),
+		EvictionConfig: evictionConfig,
 	}, nil
 }
 
@@ -512,7 +517,7 @@ func SimpleKubelet(client *clientset.Clientset,
 	configFilePath string,
 	cloud cloudprovider.Interface,
 	osInterface kubecontainer.OSInterface,
-	fileCheckFrequency, httpCheckFrequency, minimumGCAge, nodeStatusUpdateFrequency, syncFrequency, outOfDiskTransitionFrequency time.Duration,
+	fileCheckFrequency, httpCheckFrequency, minimumGCAge, nodeStatusUpdateFrequency, syncFrequency, outOfDiskTransitionFrequency, evictionPressureTransitionPeriod time.Duration,
 	maxPods int,
 	containerManager cm.ContainerManager, clusterDNS net.IP) *KubeletConfig {
 	imageGCPolicy := kubelet.ImageGCPolicy{
@@ -523,7 +528,9 @@ func SimpleKubelet(client *clientset.Clientset,
 		DockerFreeDiskMB: 256,
 		RootFreeDiskMB:   256,
 	}
-
+	evictionConfig := eviction.Config{
+		PressureTransitionPeriod: evictionPressureTransitionPeriod,
+	}
 	kcfg := KubeletConfig{
 		Address:                 net.ParseIP(address),
 		CAdvisorInterface:       cadvisorInterface,
@@ -558,6 +565,7 @@ func SimpleKubelet(client *clientset.Clientset,
 		MaxOpenFiles:              1024,
 		MaxPerPodContainerCount:   2,
 		MaxPods:                   maxPods,
+		NvidiaGPUs:                0,
 		MinimumGCAge:              minimumGCAge,
 		Mounter:                   mount.New(),
 		NodeStatusUpdateFrequency: nodeStatusUpdateFrequency,
@@ -580,6 +588,7 @@ func SimpleKubelet(client *clientset.Clientset,
 		VolumePlugins:       volumePlugins,
 		Writer:              &io.StdWriter{},
 		OutOfDiskTransitionFrequency: outOfDiskTransitionFrequency,
+		EvictionConfig:               evictionConfig,
 	}
 	return &kcfg
 }
@@ -750,6 +759,7 @@ type KubeletConfig struct {
 	NodeLabels                     map[string]string
 	NodeStatusUpdateFrequency      time.Duration
 	NonMasqueradeCIDR              string
+	NvidiaGPUs                     int
 	OOMAdjuster                    *oom.OOMAdjuster
 	OSInterface                    kubecontainer.OSInterface
 	PodCIDR                        string
@@ -780,7 +790,7 @@ type KubeletConfig struct {
 	Writer                         io.Writer
 	VolumePlugins                  []volume.VolumePlugin
 	OutOfDiskTransitionFrequency   time.Duration
-	Thresholds                     []eviction.Threshold
+	EvictionConfig                 eviction.Config
 
 	ExperimentalFlannelOverlay bool
 	NodeIP                     net.IP
@@ -860,6 +870,7 @@ func CreateAndInitKubelet(kc *KubeletConfig) (k KubeletBootstrap, pc *config.Pod
 		kc.PodCIDR,
 		kc.ReconcileCIDR,
 		kc.MaxPods,
+		kc.NvidiaGPUs,
 		kc.DockerExecHandler,
 		kc.ResolverConfig,
 		kc.CPUCFSQuota,
@@ -876,7 +887,7 @@ func CreateAndInitKubelet(kc *KubeletConfig) (k KubeletBootstrap, pc *config.Pod
 		kc.ContainerRuntimeOptions,
 		kc.HairpinMode,
 		kc.BabysitDaemons,
-		kc.Thresholds,
+		kc.EvictionConfig,
 		kc.Options,
 	)
 

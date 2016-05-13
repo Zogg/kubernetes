@@ -106,6 +106,7 @@ func NewKubeletServer() *KubeletServer {
 			MaxPerPodContainerCount:     2,
 			MaxOpenFiles:                1000000,
 			MaxPods:                     110,
+			NvidiaGPUs:                  0,
 			MinimumGCAge:                unversioned.Duration{Duration: 1 * time.Minute},
 			NetworkPluginDir:            "/usr/libexec/kubernetes/kubelet-plugins/net/exec/",
 			NetworkPluginName:           "",
@@ -116,30 +117,31 @@ func NewKubeletServer() *KubeletServer {
 			OOMScoreAdj:                 int32(qos.KubeletOOMScoreAdj),
 			LockFilePath:                "",
 			PodInfraContainerImage:      GetDefaultPodInfraContainerImage(),
-			Port:                           ports.KubeletPort,
-			ReadOnlyPort:                   ports.KubeletReadOnlyPort,
-			RegisterNode:                   true, // will be ignored if no apiserver is configured
-			RegisterSchedulable:            true,
-			RegistryBurst:                  10,
-			RegistryPullQPS:                5.0,
-			KubeletCgroups:                 "",
-			ResolverConfig:                 kubetypes.ResolvConfDefault,
-			RktPath:                        "",
-			RktAPIEndpoint:                 rkt.DefaultRktAPIServiceEndpoint,
-			RktStage1Image:                 "",
-			RootDirectory:                  defaultRootDir,
-			RuntimeCgroups:                 "",
-			SerializeImagePulls:            true,
-			StreamingConnectionIdleTimeout: unversioned.Duration{Duration: 4 * time.Hour},
-			SyncFrequency:                  unversioned.Duration{Duration: 1 * time.Minute},
-			SystemCgroups:                  "",
-			ReconcileCIDR:                  true,
-			KubeAPIQPS:                     5.0,
-			KubeAPIBurst:                   10,
-			ExperimentalFlannelOverlay:     experimentalFlannelOverlay,
-			OutOfDiskTransitionFrequency:   unversioned.Duration{Duration: 5 * time.Minute},
-			HairpinMode:                    componentconfig.PromiscuousBridge,
-			BabysitDaemons:                 false,
+			Port:                             ports.KubeletPort,
+			ReadOnlyPort:                     ports.KubeletReadOnlyPort,
+			RegisterNode:                     true, // will be ignored if no apiserver is configured
+			RegisterSchedulable:              true,
+			RegistryBurst:                    10,
+			RegistryPullQPS:                  5.0,
+			KubeletCgroups:                   "",
+			ResolverConfig:                   kubetypes.ResolvConfDefault,
+			RktPath:                          "",
+			RktAPIEndpoint:                   rkt.DefaultRktAPIServiceEndpoint,
+			RktStage1Image:                   "",
+			RootDirectory:                    defaultRootDir,
+			RuntimeCgroups:                   "",
+			SerializeImagePulls:              true,
+			StreamingConnectionIdleTimeout:   unversioned.Duration{Duration: 4 * time.Hour},
+			SyncFrequency:                    unversioned.Duration{Duration: 1 * time.Minute},
+			SystemCgroups:                    "",
+			ReconcileCIDR:                    true,
+			KubeAPIQPS:                       5.0,
+			KubeAPIBurst:                     10,
+			ExperimentalFlannelOverlay:       experimentalFlannelOverlay,
+			OutOfDiskTransitionFrequency:     unversioned.Duration{Duration: 5 * time.Minute},
+			HairpinMode:                      componentconfig.PromiscuousBridge,
+			BabysitDaemons:                   false,
+			EvictionPressureTransitionPeriod: unversioned.Duration{Duration: 5 * time.Minute},
 		},
 	}
 }
@@ -227,6 +229,7 @@ func (s *KubeletServer) AddFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&s.BabysitDaemons, "babysit-daemons", s.BabysitDaemons, "If true, the node has babysitter process monitoring docker and kubelet.")
 	fs.MarkDeprecated("babysit-daemons", "Will be removed in a future version.")
 	fs.Int32Var(&s.MaxPods, "max-pods", s.MaxPods, "Number of Pods that can run on this Kubelet.")
+	fs.Int32Var(&s.NvidiaGPUs, "experimental-nvidia-gpus", s.NvidiaGPUs, "Number of NVIDIA GPU devices on this node. Only 0 (default) and 1 are currently supported.")
 	fs.StringVar(&s.DockerExecHandlerName, "docker-exec-handler", s.DockerExecHandlerName, "Handler to use when executing a command in a container. Valid values are 'native' and 'nsenter'. Defaults to 'native'.")
 	fs.StringVar(&s.NonMasqueradeCIDR, "non-masquerade-cidr", s.NonMasqueradeCIDR, "Traffic to IPs outside this range will use IP masquerade.")
 	fs.StringVar(&s.PodCIDR, "pod-cidr", "", "The CIDR to use for pod IP addresses, only used in standalone mode.  In cluster mode, this is obtained from the master.")
@@ -253,4 +256,5 @@ func (s *KubeletServer) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.EvictionHard, "eviction-hard", s.EvictionHard, "A set of eviction thresholds (e.g. memory.available<1Gi) that if met would trigger a pod eviction.")
 	fs.StringVar(&s.EvictionSoft, "eviction-soft", s.EvictionSoft, "A set of eviction thresholds (e.g. memory.available<1.5Gi) that if met over a corresponding grace period would trigger a pod eviction.")
 	fs.StringVar(&s.EvictionSoftGracePeriod, "eviction-soft-grace-period", s.EvictionSoftGracePeriod, "A set of eviction grace periods (e.g. memory.available=1m30s) that correspond to how long a soft eviction threshold must hold before triggering a pod eviction.")
+	fs.DurationVar(&s.EvictionPressureTransitionPeriod.Duration, "eviction-pressure-transition-period", s.EvictionPressureTransitionPeriod.Duration, "Duration for which the kubelet has to wait before transitioning out of an eviction pressure condition.")
 }

@@ -121,12 +121,14 @@ event-ttl
 eviction-hard
 eviction-soft
 eviction-soft-grace-period
+eviction-pressure-transition-period
 executor-bindall
 executor-logv
 executor-path
 executor-suicide-timeout
 experimental-flannel-overlay
 experimental-keystone-url
+experimental-nvidia-gpus
 experimental-prefix
 external-hostname
 external-ip

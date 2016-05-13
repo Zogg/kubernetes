@@ -1832,6 +1832,10 @@ type NodeSystemInfo struct {
 	KubeletVersion string `json:"kubeletVersion"`
 	// KubeProxy Version reported by the node.
 	KubeProxyVersion string `json:"kubeProxyVersion"`
+	// The Operating System reported by the node
+	OperatingSystem string `json:"operatingSystem"`
+	// The Architecture reported by the node
+	Architecture string `json:"architecture"`
 }
 
 // NodeStatus is information about the current status of a node.
@@ -1922,6 +1926,11 @@ type NodeResources struct {
 // ResourceName is the name identifying various resources in a ResourceList.
 type ResourceName string
 
+// Resource names must be not more than 63 characters, consisting of upper- or lower-case alphanumeric characters,
+// with the -, _, and . characters allowed anywhere, except the first or last character.
+// The default convention, matching that for annotations, is to use lower-case names, with dashes, rather than
+// camel case, separating compound words.
+// Fully-qualified resource typenames are constructed from a DNS-style subdomain, followed by a slash `/` and a name.
 const (
 	// CPU, in cores. (500m = .5 cores)
 	ResourceCPU ResourceName = "cpu"
@@ -1929,6 +1938,8 @@ const (
 	ResourceMemory ResourceName = "memory"
 	// Volume size, in bytes (e,g. 5Gi = 5GiB = 5 * 1024 * 1024 * 1024)
 	ResourceStorage ResourceName = "storage"
+	// NVIDIA GPU, in devices. Alpha, might change: although fractional and allowing values >1, only one whole device per node is assigned.
+	ResourceNvidiaGPU ResourceName = "alpha.kubernetes.io/nvidia-gpu"
 	// Number of Pods that may be running on this Node: see ResourcePods
 )
 

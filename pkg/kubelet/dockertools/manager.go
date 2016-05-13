@@ -324,6 +324,11 @@ func (dm *DockerManager) determineContainerIP(podNamespace, podName string, cont
 
 	if container.NetworkSettings != nil {
 		result = container.NetworkSettings.IPAddress
+
+		// Fall back to IPv6 address if no IPv4 address is present
+		if result == "" {
+			result = container.NetworkSettings.GlobalIPv6Address
+		}
 	}
 
 	if dm.networkPlugin.Name() != network.DefaultPluginName {
@@ -569,6 +574,7 @@ func (dm *DockerManager) runContainer(
 	memoryLimit := container.Resources.Limits.Memory().Value()
 	cpuRequest := container.Resources.Requests.Cpu()
 	cpuLimit := container.Resources.Limits.Cpu()
+	nvidiaGPULimit := container.Resources.Limits.NvidiaGPU()
 	var cpuShares int64
 	// If request is not specified, but limit is, we want request to default to limit.
 	// API server does this for new containers, but we repeat this logic in Kubelet
@@ -579,6 +585,16 @@ func (dm *DockerManager) runContainer(
 		// if cpuRequest.Amount is nil, then milliCPUToShares will return the minimal number
 		// of CPU shares.
 		cpuShares = milliCPUToShares(cpuRequest.MilliValue())
+	}
+	var devices []dockercontainer.DeviceMapping
+	if nvidiaGPULimit.Value() != 0 {
+		// Experimental. For now, we hardcode /dev/nvidia0 no matter what the user asks for
+		// (we only support one device per node).
+		devices = []dockercontainer.DeviceMapping{
+			{"/dev/nvidia0", "/dev/nvidia0", "mrw"},
+			{"/dev/nvidiactl", "/dev/nvidiactl", "mrw"},
+			{"/dev/nvidia-uvm", "/dev/nvidia-uvm", "mrw"},
+		}
 	}
 	podHasSELinuxLabel := pod.Spec.SecurityContext != nil && pod.Spec.SecurityContext.SELinuxOptions != nil
 	binds := makeMountBindings(opts.Mounts, podHasSELinuxLabel)
@@ -615,6 +631,7 @@ func (dm *DockerManager) runContainer(
 			Memory:     memoryLimit,
 			MemorySwap: -1,
 			CPUShares:  cpuShares,
+			Devices:    devices,
 		},
 		SecurityOpt: securityOpts,
 	}
@@ -656,7 +673,7 @@ func (dm *DockerManager) runContainer(
 
 	// Set network configuration for infra-container
 	if container.Name == PodInfraContainerName {
-		setInfraContainerNetworkConfig(pod, netMode, opts, dockerOpts)
+		setInfraContainerNetworkConfig(pod, netMode, opts, &dockerOpts)
 	}
 
 	setEntrypointAndCommand(container, opts, dockerOpts)
@@ -688,7 +705,7 @@ func (dm *DockerManager) runContainer(
 
 // setInfraContainerNetworkConfig sets the network configuration for the infra-container. We only set network configuration for infra-container, all
 // the user containers will share the same network namespace with infra-container.
-func setInfraContainerNetworkConfig(pod *api.Pod, netMode string, opts *kubecontainer.RunContainerOptions, dockerOpts dockertypes.ContainerCreateConfig) {
+func setInfraContainerNetworkConfig(pod *api.Pod, netMode string, opts *kubecontainer.RunContainerOptions, dockerOpts *dockertypes.ContainerCreateConfig) {
 	exposedPorts, portBindings := makePortsAndBindings(opts.PortMappings)
 	dockerOpts.Config.ExposedPorts = exposedPorts
 	dockerOpts.HostConfig.PortBindings = dockernat.PortMap(portBindings)
@@ -1159,6 +1176,15 @@ func (dm *DockerManager) GetContainerIP(containerID, interfaceName string) (stri
 	args := []string{"-t", fmt.Sprintf("%d", containerPid), "-n", "--", "bash", "-c", extractIPCmd}
 	command := exec.Command("nsenter", args...)
 	out, err := command.CombinedOutput()
+
+	// Fall back to IPv6 address if no IPv4 address is present
+	if err == nil && string(out) == "" {
+		extractIPCmd = fmt.Sprintf("ip -6 addr show %s scope global | grep inet6 | awk -F\" \" '{print $2}'", interfaceName)
+		args = []string{"-t", fmt.Sprintf("%d", containerPid), "-n", "--", "bash", "-c", extractIPCmd}
+		command = exec.Command("nsenter", args...)
+		out, err = command.CombinedOutput()
+	}
+
 	if err != nil {
 		return "", err
 	}
