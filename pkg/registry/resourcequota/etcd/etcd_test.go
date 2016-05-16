@@ -18,7 +18,6 @@ package etcd
 
 import (
 	"testing"
-
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/resource"
 	"k8s.io/kubernetes/pkg/fields"
@@ -26,13 +25,19 @@ import (
 	"k8s.io/kubernetes/pkg/registry/generic"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
 	"k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
-	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
+	"k8s.io/kubernetes/pkg/storage"
+	"k8s.io/kubernetes/pkg/api/testapi"
+	//etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
 	"k8s.io/kubernetes/pkg/util/diff"
+	storagetesting "k8s.io/kubernetes/pkg/storage/testing/factory"
+	"path"
 )
 
-func newStorage(t *testing.T) (*REST, *StatusREST, *etcdtesting.EtcdTestServer) {
-	etcdStorage, server := registrytest.NewEtcdStorage(t, "")
-	restOptions := generic.RESTOptions{Storage: etcdStorage, Decorator: generic.UndecoratedStorage, DeleteCollectionWorkers: 1}
+func newStorage(t *testing.T, factory storagetesting.TestServerFactory) (*REST, *StatusREST, storagetesting.TestServer) {
+	server := factory.NewTestClientServer(t)
+	prefix := path.Join("/", etcdtest.PathPrefix())
+	genericStore := storage.NewGenericWrapper(server.NewRawStorage(), testapi.Default.Codec(), prefix)
+	restOptions := generic.RESTOptions{Storage: genericStore, Decorator: generic.UndecoratedStorage, DeleteCollectionWorkers: 1}
 	resourceQuotaStorage, statusStorage := NewREST(restOptions)
 	return resourceQuotaStorage, statusStorage, server
 }
@@ -56,8 +61,25 @@ func validNewResourceQuota() *api.ResourceQuota {
 	}
 }
 
-func TestCreate(t *testing.T) {
-	storage, _, server := newStorage(t)
+func TestStorage(t *testing.T) {
+	factories := storagetesting.GetAllTestStorageFactories(t)[1:]
+
+	for _, factory := range factories {
+		t.Logf("testing with storage implementation: %s", factory.GetName())
+		testCreate(t, factory)
+		testCreateSetsFields(t, factory)
+		testDelete(t, factory)
+		testGet(t, factory)
+
+		testList(t, factory)
+		testWatch(t, factory)
+		testUpdateStatus(t, factory)
+	}
+}
+
+
+func testCreate(t *testing.T, factory storagetesting.TestServerFactory) {
+	storage, _, server := newStorage(t, factory)
 	defer server.Terminate(t)
 	test := registrytest.New(t, storage.Etcd)
 	resourcequota := validNewResourceQuota()
@@ -72,8 +94,8 @@ func TestCreate(t *testing.T) {
 	)
 }
 
-func TestCreateSetsFields(t *testing.T) {
-	storage, _, server := newStorage(t)
+func testCreateSetsFields(t *testing.T, factory storagetesting.TestServerFactory) {
+	storage, _, server := newStorage(t, factory)
 	defer server.Terminate(t)
 	ctx := api.NewDefaultContext()
 	resourcequota := validNewResourceQuota()
@@ -95,29 +117,29 @@ func TestCreateSetsFields(t *testing.T) {
 	}
 }
 
-func TestDelete(t *testing.T) {
-	storage, _, server := newStorage(t)
+func testDelete(t *testing.T, factory storagetesting.TestServerFactory) {
+	storage, _, server := newStorage(t, factory)
 	defer server.Terminate(t)
 	test := registrytest.New(t, storage.Etcd).ReturnDeletedObject()
 	test.TestDelete(validNewResourceQuota())
 }
 
-func TestGet(t *testing.T) {
-	storage, _, server := newStorage(t)
+func testGet(t *testing.T, factory storagetesting.TestServerFactory) {
+	storage, _, server := newStorage(t, factory)
 	defer server.Terminate(t)
 	test := registrytest.New(t, storage.Etcd)
 	test.TestGet(validNewResourceQuota())
 }
 
-func TestList(t *testing.T) {
-	storage, _, server := newStorage(t)
+func testList(t *testing.T, factory storagetesting.TestServerFactory) {
+	storage, _, server := newStorage(t, factory)
 	defer server.Terminate(t)
 	test := registrytest.New(t, storage.Etcd)
 	test.TestList(validNewResourceQuota())
 }
 
-func TestWatch(t *testing.T) {
-	storage, _, server := newStorage(t)
+func testWatch(t *testing.T, factory storagetesting.TestServerFactory) {
+	storage, _, server := newStorage(t, factory)
 	defer server.Terminate(t)
 	test := registrytest.New(t, storage.Etcd)
 	test.TestWatch(
@@ -139,8 +161,8 @@ func TestWatch(t *testing.T) {
 	)
 }
 
-func TestUpdateStatus(t *testing.T) {
-	storage, status, server := newStorage(t)
+func testUpdateStatus(t *testing.T, factory storagetesting.TestServerFactory) {
+	storage, status, server := newStorage(t, factory)
 	defer server.Terminate(t)
 	ctx := api.NewDefaultContext()
 

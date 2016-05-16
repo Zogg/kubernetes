@@ -83,8 +83,8 @@ type ConsulTestServerFactory struct {
 }
 
 func(f *ConsulTestServerFactory) NewTestClientServer(t *testing.T) TestServer {
-	cmd := exec.Command( f.filePath, "agent", "-dev" )
-	glog.Errorf("About to launch: %s agent -dev", f.filePath)
+	cmd := exec.Command( f.filePath, "agent", "-dev", "-bind=127.0.0.1" )
+	glog.Errorf("About to launch: %s agent -dev -bind=127.0.0.1", f.filePath)
 	err := cmd.Start()
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
