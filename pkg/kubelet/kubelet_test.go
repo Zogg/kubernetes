@@ -123,7 +123,7 @@ func newTestKubelet(t *testing.T) *TestKubelet {
 	fakeKubeClient := &fake.Clientset{}
 	kubelet := &Kubelet{}
 	kubelet.kubeClient = fakeKubeClient
-	kubelet.os = containertest.FakeOS{}
+	kubelet.os = &containertest.FakeOS{}
 
 	kubelet.hostname = testKubeletHostname
 	kubelet.nodeName = testKubeletHostname
@@ -695,12 +695,6 @@ type fakeContainerCommandRunner struct {
 	TTY    bool
 	Port   uint16
 	Stream io.ReadWriteCloser
-}
-
-func (f *fakeContainerCommandRunner) RunInContainer(id kubecontainer.ContainerID, cmd []string) ([]byte, error) {
-	f.Cmd = cmd
-	f.ID = id
-	return []byte{}, f.E
 }
 
 func (f *fakeContainerCommandRunner) ExecInContainer(id kubecontainer.ContainerID, cmd []string, in io.Reader, out, err io.WriteCloser, tty bool) error {

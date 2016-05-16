@@ -209,7 +209,7 @@ function gen-kube-bearertoken() {
 # Vars set:
 #   KUBE_UID
 function gen-uid {
-    KUBE_UID=$(python -c 'import uuid; print uuid.uuid1().fields[0]')
+    KUBE_UID=$(python -c 'import uuid; print(uuid.uuid1().fields[0])')
 }
 
 
@@ -641,6 +641,12 @@ KUBERNETES_CONTAINER_RUNTIME: $(yaml-quote ${CONTAINER_RUNTIME:-docker})
 RKT_VERSION: $(yaml-quote ${RKT_VERSION:-})
 RKT_PATH: $(yaml-quote ${RKT_PATH:-})
 KUBERNETES_CONFIGURE_CBR0: $(yaml-quote ${KUBERNETES_CONFIGURE_CBR0:-true})
+EOF
+  fi
+  if [[ "${ENABLE_NODE_AUTOSCALER}" == "true" ]]; then
+      cat >>$file <<EOF
+ENABLE_NODE_AUTOSCALER: $(yaml-quote ${ENABLE_NODE_AUTOSCALER})
+AUTOSCALER_MIG_CONFIG: $(yaml-quote ${AUTOSCALER_MIG_CONFIG})
 EOF
   fi
 }

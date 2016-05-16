@@ -47,6 +47,7 @@ import (
 	"k8s.io/kubernetes/pkg/apis/batch"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/apis/metrics"
+	"k8s.io/kubernetes/pkg/apis/policy"
 	"k8s.io/kubernetes/pkg/client/restclient"
 	client "k8s.io/kubernetes/pkg/client/unversioned"
 	clientset "k8s.io/kubernetes/pkg/client/unversioned/adapters/internalclientset"
@@ -111,6 +112,8 @@ type Factory struct {
 	MapBasedSelectorForObject func(object runtime.Object) (string, error)
 	// PortsForObject returns the ports associated with the provided object
 	PortsForObject func(object runtime.Object) ([]string, error)
+	// ProtocolsForObject returns the <port, protocol> mapping associated with the provided object
+	ProtocolsForObject func(object runtime.Object) (map[string]string, error)
 	// LabelsForObject returns the labels associated with the provided object
 	LabelsForObject func(object runtime.Object) (map[string]string, error)
 	// LogsForObject returns a request for the logs associated with the provided object
@@ -321,6 +324,8 @@ func NewFactory(optionalClientConfig clientcmd.ClientConfig) *Factory {
 				return c.AutoscalingClient.RESTClient, nil
 			case batch.GroupName:
 				return c.BatchClient.RESTClient, nil
+			case policy.GroupName:
+				return c.PolicyClient.RESTClient, nil
 			case apps.GroupName:
 				return c.AppsClient.RESTClient, nil
 			case extensions.GroupName:
@@ -423,6 +428,27 @@ func NewFactory(optionalClientConfig clientcmd.ClientConfig) *Factory {
 					return nil, err
 				}
 				return nil, fmt.Errorf("cannot extract ports from %v", gvk)
+			}
+		},
+		ProtocolsForObject: func(object runtime.Object) (map[string]string, error) {
+			// TODO: replace with a swagger schema based approach (identify pod selector via schema introspection)
+			switch t := object.(type) {
+			case *api.ReplicationController:
+				return getProtocols(t.Spec.Template.Spec), nil
+			case *api.Pod:
+				return getProtocols(t.Spec), nil
+			case *api.Service:
+				return getServiceProtocols(t.Spec), nil
+			case *extensions.Deployment:
+				return getProtocols(t.Spec.Template.Spec), nil
+			case *extensions.ReplicaSet:
+				return getProtocols(t.Spec.Template.Spec), nil
+			default:
+				gvk, err := api.Scheme.ObjectKind(object)
+				if err != nil {
+					return nil, err
+				}
+				return nil, fmt.Errorf("cannot extract protocols from %v", gvk)
 			}
 		},
 		LabelsForObject: func(object runtime.Object) (map[string]string, error) {
@@ -754,11 +780,30 @@ func getPorts(spec api.PodSpec) []string {
 	return result
 }
 
+func getProtocols(spec api.PodSpec) map[string]string {
+	result := make(map[string]string)
+	for _, container := range spec.Containers {
+		for _, port := range container.Ports {
+			result[strconv.Itoa(int(port.ContainerPort))] = string(port.Protocol)
+		}
+	}
+	return result
+}
+
 // Extracts the ports exposed by a service from the given service spec.
 func getServicePorts(spec api.ServiceSpec) []string {
 	result := []string{}
 	for _, servicePort := range spec.Ports {
 		result = append(result, strconv.Itoa(int(servicePort.Port)))
+	}
+	return result
+}
+
+// Extracts the protocols exposed by a service from the given service spec.
+func getServiceProtocols(spec api.ServiceSpec) map[string]string {
+	result := make(map[string]string)
+	for _, servicePort := range spec.Ports {
+		result[strconv.Itoa(int(servicePort.Port))] = string(servicePort.Protocol)
 	}
 	return result
 }
@@ -899,6 +944,12 @@ func (c *clientSwaggerSchema) ValidateBytes(data []byte) error {
 			return errors.New("unable to validate: no autoscaling client")
 		}
 		return getSchemaAndValidate(c.c.AutoscalingClient.RESTClient, data, "apis/", gvk.GroupVersion().String(), c.cacheDir, c)
+	}
+	if gvk.Group == policy.GroupName {
+		if c.c.PolicyClient == nil {
+			return errors.New("unable to validate: no policy client")
+		}
+		return getSchemaAndValidate(c.c.PolicyClient.RESTClient, data, "apis/", gvk.GroupVersion().String(), c.cacheDir, c)
 	}
 	if gvk.Group == apps.GroupName {
 		if c.c.AppsClient == nil {
