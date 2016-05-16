@@ -37,25 +37,25 @@ import (
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	"k8s.io/kubernetes/pkg/apiserver"
-	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
+	stgtestfactory "k8s.io/kubernetes/pkg/storage/testing/factory"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
 
 	"github.com/stretchr/testify/assert"
 )
 
 // setUp is a convience function for setting up for (most) tests.
-func setUp(t *testing.T) (GenericAPIServer, *etcdtesting.EtcdTestServer, Config, *assert.Assertions) {
-	etcdServer := etcdtesting.NewEtcdTestClientServer(t)
+func setUp(t *testing.T, factory stgtestfactory.TestServerFactory) (GenericAPIServer, stgtestfactory.TestServer, Config, *assert.Assertions) {
+	storageServer := factory.NewTestClientServer(t)
 
 	genericapiserver := GenericAPIServer{}
 	config := Config{}
 	config.PublicAddress = net.ParseIP("192.168.10.4")
 
-	return genericapiserver, etcdServer, config, assert.New(t)
+	return genericapiserver, storageServer, config, assert.New(t)
 }
 
-func newMaster(t *testing.T) (*GenericAPIServer, *etcdtesting.EtcdTestServer, Config, *assert.Assertions) {
-	_, etcdserver, config, assert := setUp(t)
+func newMaster(t *testing.T, factory stgtestfactory.TestServerFactory) (*GenericAPIServer, stgtestfactory.TestServer, Config, *assert.Assertions) {
+	_, storserver, config, assert := setUp(t, factory)
 
 	config.ProxyDialer = func(network, addr string) (net.Conn, error) { return nil, nil }
 	config.ProxyTLSClientConfig = &tls.Config{}
@@ -67,14 +67,21 @@ func newMaster(t *testing.T) (*GenericAPIServer, *etcdtesting.EtcdTestServer, Co
 	if err != nil {
 		t.Fatalf("Error in bringing up the server: %v", err)
 	}
-	return s, etcdserver, config, assert
+	return s, storserver, config, assert
 }
 
 // TestNew verifies that the New function returns a GenericAPIServer
 // using the configuration properly.
 func TestNew(t *testing.T) {
-	s, etcdserver, config, assert := newMaster(t)
-	defer etcdserver.Terminate(t)
+	stgFactories := stgtestfactory.GetAllTestStorageFactories(t)
+	for _, stgFactory := range stgFactories {
+		testNew(t, stgFactory)
+	}
+}
+
+func testNew(t *testing.T, stgFactory stgtestfactory.TestServerFactory) {
+	s, storserver, config, assert := newMaster(t,stgFactory)
+	defer storserver.Terminate(t)
 
 	// Verify many of the variables match their config counterparts
 	assert.Equal(s.enableLogsSupport, config.EnableLogsSupport)
@@ -106,8 +113,15 @@ func TestNew(t *testing.T) {
 
 // Verifies that AddGroupVersions works as expected.
 func TestInstallAPIGroups(t *testing.T) {
-	_, etcdserver, config, assert := setUp(t)
-	defer etcdserver.Terminate(t)
+	stgFactories := stgtestfactory.GetAllTestStorageFactories(t)
+	for _, stgFactory := range stgFactories {
+		testInstallAPIGroups(t, stgFactory)
+	}
+}
+
+func testInstallAPIGroups(t *testing.T, stgFactory stgtestfactory.TestServerFactory) {
+	_, storserver, config, assert := setUp(t,stgFactory)
+	defer storserver.Terminate(t)
 
 	config.ProxyDialer = func(network, addr string) (net.Conn, error) { return nil, nil }
 	config.ProxyTLSClientConfig = &tls.Config{}
@@ -176,8 +190,15 @@ func TestNewHandlerContainer(t *testing.T) {
 // TestHandleWithAuth verifies HandleWithAuth adds the path
 // to the MuxHelper.RegisteredPaths.
 func TestHandleWithAuth(t *testing.T) {
-	server, etcdserver, _, assert := setUp(t)
-	defer etcdserver.Terminate(t)
+	stgFactories := stgtestfactory.GetAllTestStorageFactories(t)
+	for _, stgFactory := range stgFactories {
+		testHandleWithAuth(t, stgFactory)
+	}
+}
+
+func testHandleWithAuth(t *testing.T, stgFactory stgtestfactory.TestServerFactory) {
+	server, storserver, _, assert := setUp(t,stgFactory)
+	defer storserver.Terminate(t)
 
 	mh := apiserver.MuxHelper{Mux: http.NewServeMux()}
 	server.MuxHelper = &mh
@@ -190,8 +211,15 @@ func TestHandleWithAuth(t *testing.T) {
 // TestHandleFuncWithAuth verifies HandleFuncWithAuth adds the path
 // to the MuxHelper.RegisteredPaths.
 func TestHandleFuncWithAuth(t *testing.T) {
-	server, etcdserver, _, assert := setUp(t)
-	defer etcdserver.Terminate(t)
+	stgFactories := stgtestfactory.GetAllTestStorageFactories(t)
+	for _, stgFactory := range stgFactories {
+		testHandleFuncWithAuth(t, stgFactory)
+	}
+}
+
+func testHandleFuncWithAuth(t *testing.T, stgFactory stgtestfactory.TestServerFactory) {
+	server,storserver, _, assert := setUp(t,stgFactory)
+	defer storserver.Terminate(t)
 
 	mh := apiserver.MuxHelper{Mux: http.NewServeMux()}
 	server.MuxHelper = &mh
@@ -204,8 +232,15 @@ func TestHandleFuncWithAuth(t *testing.T) {
 // TestInstallSwaggerAPI verifies that the swagger api is added
 // at the proper endpoint.
 func TestInstallSwaggerAPI(t *testing.T) {
-	server, etcdserver, _, assert := setUp(t)
-	defer etcdserver.Terminate(t)
+	stgFactories := stgtestfactory.GetAllTestStorageFactories(t)
+	for _, stgFactory := range stgFactories {
+		testInstallSwaggerAPI(t, stgFactory)
+	}
+}
+
+func testInstallSwaggerAPI(t *testing.T, stgFactory stgtestfactory.TestServerFactory) {
+	server, storserver, _, assert := setUp(t,stgFactory)
+	defer storserver.Terminate(t)
 
 	mux := http.NewServeMux()
 	server.HandlerContainer = NewHandlerContainer(mux, nil)
@@ -266,8 +301,15 @@ func getGroupList(server *httptest.Server) (*unversioned.APIGroupList, error) {
 }
 
 func TestDiscoveryAtAPIS(t *testing.T) {
-	master, etcdserver, config, assert := newMaster(t)
-	defer etcdserver.Terminate(t)
+	stgFactories := stgtestfactory.GetAllTestStorageFactories(t)
+	for _, stgFactory := range stgFactories {
+		testDiscoveryAtAPIS(t, stgFactory)
+	}
+}
+
+func testDiscoveryAtAPIS(t *testing.T, stgFactory stgtestfactory.TestServerFactory) {
+	master, storserver, config, assert := newMaster(t,stgFactory)
+	defer storserver.Terminate(t)
 
 	server := httptest.NewServer(master.HandlerContainer.ServeMux)
 	groupList, err := getGroupList(server)
@@ -317,8 +359,15 @@ func TestDiscoveryAtAPIS(t *testing.T) {
 }
 
 func TestGetServerAddressByClientCIDRs(t *testing.T) {
-	s, etcdserver, _, _ := newMaster(t)
-	defer etcdserver.Terminate(t)
+	stgFactories := stgtestfactory.GetAllTestStorageFactories(t)
+	for _, stgFactory := range stgFactories {
+		testGetServerAddressByClientCIDRs(t, stgFactory)
+	}
+}
+
+func testGetServerAddressByClientCIDRs(t *testing.T, stgFactory stgtestfactory.TestServerFactory) {
+	s, storserver, _, _ := newMaster(t,stgFactory)
+	defer storserver.Terminate(t)
 
 	publicAddressCIDRMap := []unversioned.ServerAddressByClientCIDR{
 		{

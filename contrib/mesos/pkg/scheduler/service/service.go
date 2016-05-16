@@ -61,6 +61,7 @@ import (
 	"k8s.io/kubernetes/contrib/mesos/pkg/scheduler/components/framework"
 	"k8s.io/kubernetes/contrib/mesos/pkg/scheduler/components/framework/frameworkid"
 	frameworkidEtcd "k8s.io/kubernetes/contrib/mesos/pkg/scheduler/components/framework/frameworkid/etcd"
+	frameworkidGeneric "k8s.io/kubernetes/contrib/mesos/pkg/scheduler/components/framework/frameworkid/genericstorage"
 	frameworkidZk "k8s.io/kubernetes/contrib/mesos/pkg/scheduler/components/framework/frameworkid/zk"
 	schedcfg "k8s.io/kubernetes/contrib/mesos/pkg/scheduler/config"
 	"k8s.io/kubernetes/contrib/mesos/pkg/scheduler/executorinfo"
@@ -83,6 +84,7 @@ import (
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/healthz"
 	"k8s.io/kubernetes/pkg/master/ports"
+	"k8s.io/kubernetes/pkg/storage/consul"
 	"k8s.io/kubernetes/pkg/util/sets"
 
 	// lock to this API version, compilation will fail when this becomes unsupported
@@ -293,7 +295,7 @@ func (s *SchedulerServer) addCoreFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&s.graceful, "graceful", s.graceful, "Indicator of a graceful failover, intended for internal use only.")
 	fs.BoolVar(&s.ha, "ha", s.ha, "Run the scheduler in high availability mode with leader election. All peers should be configured exactly the same.")
 	fs.StringVar(&s.frameworkName, "framework-name", s.frameworkName, "The framework name to register with Mesos.")
-	fs.StringVar(&s.frameworkStoreURI, "framework-store-uri", s.frameworkStoreURI, "Where the framework should store metadata, either in Zookeeper (zk://host:port/path) or in etcd (etcd://path).")
+	fs.StringVar(&s.frameworkStoreURI, "framework-store-uri", s.frameworkStoreURI, "Where the framework should store metadata, either in Zookeeper (zk://host:port/path), in etcd (etcd://path), or in consul (consulkv://path).")
 	fs.StringVar(&s.frameworkWebURI, "framework-weburi", s.frameworkWebURI, "A URI that points to a web-based interface for interacting with the framework.")
 	fs.StringVar(&s.advertisedAddress, "advertised-address", s.advertisedAddress, "host:port address that is advertised to clients. May be used to construct artifact download URIs.")
 	fs.IPVar(&s.serviceAddress, "service-address", s.serviceAddress, "The service portal IP address that the scheduler should register with (if unset, chooses randomly)")
@@ -1074,14 +1076,24 @@ func (s *SchedulerServer) frameworkIDStorage(keysAPI etcd.KeysAPI) (frameworkid.
 		return nil, fmt.Errorf("cannot parse framework store URI: %v", err)
 	}
 
+	idpath := meta.StoreChroot
+	if u.Path != "" {
+		idpath = path.Join("/", u.Path)
+	}
+	idpath = path.Join(idpath, s.frameworkName, "frameworkid")
+	
 	switch u.Scheme {
 	case "etcd":
-		idpath := meta.StoreChroot
-		if u.Path != "" {
-			idpath = path.Join("/", u.Path)
-		}
-		idpath = path.Join(idpath, s.frameworkName, "frameworkid")
 		return frameworkidEtcd.Store(keysAPI, idpath, time.Duration(s.failoverTimeout)*time.Second), nil
+	case "consulkv":
+		config := &consul.ConsulConfig{
+			WaitTimeout:	consul.DefaultWaitTimeout,
+		}
+		storage, err := config.NewRawStorage()
+		if err != nil {
+			return nil, err
+		}
+		return frameworkidGeneric.Store(storage, idpath, time.Duration(s.failoverTimeout)*time.Second), nil
 	case "zk":
 		return frameworkidZk.Store(s.frameworkStoreURI, s.frameworkName), nil
 	default:

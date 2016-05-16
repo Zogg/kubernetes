@@ -231,10 +231,10 @@ func (k *KV) put(key string, params map[string]string, body []byte, q *WriteOpti
 	var response KvPutResponse
 
 	//if err := decodeBody( resp, &response.Success ); err != nil {
-	if err := decodeBody( resp, &response ); err != nil {
+	if err := decodeBody(resp, &response); err != nil {
 		return false, nil, 0, err
 	}
-	
+
 	return response.Success, qm, response.ModifyIndex, nil
 }
 

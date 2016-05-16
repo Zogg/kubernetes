@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/storage/generic"
 	"k8s.io/kubernetes/pkg/types"
 	"k8s.io/kubernetes/pkg/watch"
 )
@@ -170,6 +171,9 @@ type Interface interface {
 type Config interface {
 	// Creates the Interface base on ConfigObject
 	NewStorage() (Interface, error)
+	
+	// Creates the raw-layer Interface based on ConfigObject
+	NewRawStorage() (generic.InterfaceRaw, error)
 
 	// This function is used to enforce membership, and return the underlying type
 	GetType() string

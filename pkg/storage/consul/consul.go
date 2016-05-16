@@ -25,6 +25,8 @@ import (
 	"golang.org/x/net/context"
 )
 
+const DefaultWaitTimeout = time.Duration( 10 * time.Second )
+
 type ConsulKvStorageConfig struct {
 	Config      ConsulConfig
 	Codec       runtime.Codec
@@ -43,6 +45,11 @@ func (c *ConsulKvStorageConfig) NewStorage() (storage.Interface, error) {
 		return nil, err
 	}
 	return storage.NewGenericWrapper(raw, c.Codec, c.Prefix), nil
+}
+
+// implements storage.Config
+func (c *ConsulKvStorageConfig) NewRawStorage()(generic.InterfaceRaw, error) {
+	return c.Config.NewRawStorage()
 }
 
 type ConsulConfig struct {
