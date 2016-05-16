@@ -26,7 +26,15 @@ import (
 	"k8s.io/kubernetes/pkg/watch"
 )
 
-func testMasterOther(t *testing.T, factory storagetesting.TestServerFactory) {
+var factory storagetesting.TestServerFactory
+func TestMain(m *testing.M) {
+	storagetesting.RunTestsForStorageFactories(func(fac storagetesting.TestServerFactory) int {
+		factory = fac
+		return m.Run()
+	})
+}
+
+func TestMasterOther(t *testing.T) {
 	server := factory.NewTestClientServer(t)
 	defer server.Terminate(t)
 
@@ -44,15 +52,8 @@ func testMasterOther(t *testing.T, factory storagetesting.TestServerFactory) {
 	w.Stop()
 }
 
-func TestMasterOther(t *testing.T) {
-	factories := storagetesting.GetAllTestStorageFactories(t)
-	for _, factory := range factories {
-		t.Logf("testing with storage implementation: %s", factory.GetName())
-		testMasterOther(t, factory)
-	}
-}
 
-func testMasterNoOther(t *testing.T, factory storagetesting.TestServerFactory) {
+func TestMasterNoOther(t *testing.T) {
 	server := factory.NewTestClientServer(t)
 	defer server.Terminate(t)
 
@@ -66,15 +67,7 @@ func testMasterNoOther(t *testing.T, factory storagetesting.TestServerFactory) {
 	w.Stop()
 }
 
-func TestMasterNoOther(t *testing.T) {
-	factories := storagetesting.GetAllTestStorageFactories(t)
-	for _, factory := range factories {
-		t.Logf("testing with storage implementation: %s", factory.GetName())
-		testMasterNoOther(t, factory)
-	}
-}
-
-func testMasterNoOtherThenConflict(t *testing.T, factory storagetesting.TestServerFactory) {
+func TestMasterNoOtherThenConflict(t *testing.T) {
 	server := factory.NewTestClientServer(t)
 	defer server.Terminate(t)
 
@@ -94,10 +87,3 @@ func testMasterNoOtherThenConflict(t *testing.T, factory storagetesting.TestServ
 	w_ldr.Stop()
 }
 
-func TestMasterNoOtherThenConflict(t *testing.T) {
-	factories := storagetesting.GetAllTestStorageFactories(t)
-	for _, factory := range factories {
-		t.Logf("testing with storage implementation: %s", factory.GetName())
-		testMasterNoOtherThenConflict(t, factory)
-	}
-}

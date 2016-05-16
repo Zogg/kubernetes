@@ -18,10 +18,26 @@ import (
 	"golang.org/x/net/context"
 )
 
-func GetAllTestStorageFactories(t *testing.T) []TestServerFactory {
+func RunTestsForStorageFactories(iterFn func(TestServerFactory) int) {
+	factories := GetAllTestStorageFactories()
+	retCodes := make([]int, len(factories))
+	for idx, factory := range factories {
+		fmt.Printf("Running tests in %s mode\n", factory.GetName())
+		retCodes[idx] = iterFn(factory)
+	}
+	for _, code := range retCodes {
+		if code > 0 {
+			os.Exit(code)
+		}
+	}
+	os.Exit(0)
+}
+
+func GetAllTestStorageFactories() []TestServerFactory {
 	consulFactory, err := NewConsulTestServerFactory()
 	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+		panic(fmt.Errorf("unexpected error: %v", err)) // This is a programmer or operator error
+		//t.Errorf("unexpected error: %v", err)
 	}
 	return []TestServerFactory{
 		&EtcdTestServerFactory{
