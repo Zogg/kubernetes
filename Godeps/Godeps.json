@@ -1,7 +1,7 @@
 {
 	"ImportPath": "k8s.io/kubernetes",
 	"GoVersion": "go1.6",
-	"GodepVersion": "v63",
+	"GodepVersion": "v66",
 	"Packages": [
 		"github.com/ugorji/go/codec/codecgen",
 		"github.com/onsi/ginkgo/ginkgo",
@@ -1154,6 +1154,15 @@
 			"Rev": "8096f47503459bcc74d1f4c487b7e6e42e5746b5"
 		},
 		{
+			"ImportPath": "github.com/mustwin/consul/api",
+			"Comment": "v0.6.4-292-g359541a",
+			"Rev": "359541a67d46a81411070894a2287bef092aeebb"
+		},
+		{
+			"ImportPath": "github.com/hashicorp/go-cleanhttp",
+			"Rev": "ad28ea4487f05916463e2423a55166280e8254b5"
+		},
+		{
 			"ImportPath": "github.com/hashicorp/go-msgpack/codec",
 			"Rev": "fa3f63826f7c23912c15263591e65d54d080b458"
 		},
@@ -1172,6 +1181,11 @@
 		{
 			"ImportPath": "github.com/hashicorp/raft-boltdb",
 			"Rev": "d1e82c1ec3f15ee991f7cc7ffd5b67ff6f5bbaee"
+		},
+		{
+			"ImportPath": "github.com/hashicorp/serf/coordinate",
+			"Comment": "v0.7.0-54-g44945ab",
+			"Rev": "44945ab711fb48f1cee51d248568487b938c178d"
 		},
 		{
 			"ImportPath": "github.com/hawkular/hawkular-client-go/metrics",
