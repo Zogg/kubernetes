@@ -20,7 +20,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/rest"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
-	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
+	//etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
 )
 
 // Creates a cacher on top of the given 'storageInterface'.
@@ -32,6 +32,6 @@ func StorageWithCacher(
 	scopeStrategy rest.NamespaceScopedStrategy,
 	newListFunc func() runtime.Object) storage.Interface {
 	return storage.NewCacher(
-		storageInterface, capacity, etcdstorage.APIObjectVersioner{},
+		storageInterface, capacity, storage.APIObjectVersioner{},
 		objectType, resourcePrefix, scopeStrategy, newListFunc)
 }

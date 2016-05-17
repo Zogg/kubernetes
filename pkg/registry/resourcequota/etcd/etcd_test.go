@@ -26,12 +26,21 @@ import (
 	"k8s.io/kubernetes/pkg/registry/generic"
 	"k8s.io/kubernetes/pkg/registry/registrytest"
 	"k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
-	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
+	storagetesting "k8s.io/kubernetes/pkg/storage/testing/factory"
 	"k8s.io/kubernetes/pkg/util/diff"
 )
 
-func newStorage(t *testing.T) (*REST, *StatusREST, *etcdtesting.EtcdTestServer) {
-	etcdStorage, server := registrytest.NewEtcdStorage(t, "")
+
+var factory storagetesting.TestServerFactory
+func TestMain(m *testing.M) {
+	storagetesting.RunTestsForStorageFactories(func(fac storagetesting.TestServerFactory) int {
+		factory = fac
+		return m.Run()
+	})
+}
+
+func newStorage(t *testing.T) (*REST, *StatusREST, storagetesting.TestServer) {
+	etcdStorage, server := registrytest.NewStorage(t, factory, "")
 	restOptions := generic.RESTOptions{Storage: etcdStorage, Decorator: generic.UndecoratedStorage, DeleteCollectionWorkers: 1}
 	resourceQuotaStorage, statusStorage := NewREST(restOptions)
 	return resourceQuotaStorage, statusStorage, server

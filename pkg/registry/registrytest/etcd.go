@@ -32,13 +32,13 @@ import (
 	"k8s.io/kubernetes/pkg/storage"
 	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
 	"k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
-	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
 	storagetesting "k8s.io/kubernetes/pkg/storage/testing"
+	storagefactory "k8s.io/kubernetes/pkg/storage/testing/factory"
 )
 
-func NewEtcdStorage(t *testing.T, group string) (storage.Interface, *etcdtesting.EtcdTestServer) {
-	server := etcdtesting.NewEtcdTestClientServer(t)
-	storage := etcdstorage.NewEtcdStorage(server.Client, testapi.Groups[group].Codec(), etcdtest.PathPrefix(), false)
+func NewStorage(t *testing.T, factory storagefactory.TestServerFactory, group string) (storage.Interface, storagefactory.TestServer) {
+	server := factory.NewTestClientServer(t)
+	storage := storage.NewGenericWrapper(server.NewRawStorage(), testapi.Groups[group].Codec(), etcdtest.PathPrefix())
 	return storage, server
 }
 
