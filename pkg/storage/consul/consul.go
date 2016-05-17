@@ -207,6 +207,9 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, rawOut *generi
 		rawOut.Data = kvPrev.Value
 		rawOut.Version = kvPrev.ModifyIndex
 	}
+	if kvPrev == nil || len(kvPrev.Value) == 0 {
+		return storage.NewKeyNotFoundError(key, 0)
+	}
 	return nil
 }
 
@@ -238,7 +241,7 @@ func (s *ConsulKvStorage) Get(ctx context.Context, key string, raw *generic.RawO
 		return toStorageErr(err, key, 0)
 	}
 	if kv == nil {
-		return nil
+		return storage.NewKeyNotFoundError( key, 0 )
 	}
 	if raw != nil {
 		raw.Data = kv.Value
@@ -255,10 +258,7 @@ func (s *ConsulKvStorage) GetToList(ctx context.Context, key string, rawList *[]
 		glog.Errorf("Context is nil")
 	}
 	// ensure that our path is terminated with a / to make it a directory
-	key = strings.TrimLeft( key, "/" )
-	if !strings.HasSuffix( key, "/" ) {
-		key = key + "/"
-	}
+	key = strings.Trim( key, "/" )
 	
 	// create a filter that will omit deep finds
 	myLastIndex := strings.LastIndex(key, "/")
