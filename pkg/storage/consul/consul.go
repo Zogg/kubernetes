@@ -12,8 +12,8 @@ import (
     //"k8s.io/kubernetes/pkg/api"
 	//"k8s.io/kubernetes/pkg/api/meta"
 	//"k8s.io/kubernetes/pkg/conversion"
-	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
+	"k8s.io/kubernetes/pkg/storage/storagebackend"
 	"k8s.io/kubernetes/pkg/storage/generic"
 	// TODO: relocate APIObjectVersioner to storage.APIObjectVersioner_uint64
 	//"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
@@ -27,66 +27,13 @@ import (
 
 const DefaultWaitTimeout = time.Duration( 10 * time.Second )
 
-type ConsulKvStorageConfig struct {
-	Config      ConsulConfig
-	Codec       runtime.Codec
-	Prefix      string
-}
-
-// implements storage.Config
-func (c *ConsulKvStorageConfig) GetType() string {
-	return "consulkv"
-}
-
-// implements storage.Config
-func (c *ConsulKvStorageConfig) NewStorage() (storage.Interface, error) {
-	raw, err := c.Config.NewRawStorage()
-	if err != nil {
-		return nil, err
-	}
-	return storage.NewGenericWrapper(raw, c.Codec, c.Prefix), nil
-}
-
-// implements storage.Config
-func (c *ConsulKvStorageConfig) NewRawStorage()(generic.InterfaceRaw, error) {
-	return c.Config.NewRawStorage()
-}
-
-type ConsulConfig struct {
-	// TODO add specific configuration values for k8s to pass to consul client
-	WaitTimeout time.Duration
-}
-
-func (c *ConsulConfig)  getConsulApiConfig() *consulapi.Config {
-	config := consulapi.DefaultConfig()
-	  
-	// TODO do stuff to propagate configuration values from our structure
-	// to theirs
-	  
-	return config
-}
-
-func (c *ConsulConfig)  NewRawStorage() (generic.InterfaceRaw, error) {
-	client, err := consulapi.NewClient(c.getConsulApiConfig())
-	if err != nil {
-		return nil, err
-	}
-	raw := &ConsulKvStorage {
-		ConsulKv:   *client.KV(),
-		Config:     c,
-	}
-	return raw, nil
-}
-
-
 type ConsulKvStorage struct {
 	ConsulKv    consulapi.KV
-	Config      *ConsulConfig
+	Config      *storagebackend.Config
 }
 
 func (s *ConsulKvStorage) Backends(ctx context.Context) []string {
-	// TODO
-	return []string{}
+	return s.Config.ServerList
 }
 
 func (s *ConsulKvStorage) Create(ctx context.Context, key string, data []byte, out *generic.RawObject, ttl uint64) error {

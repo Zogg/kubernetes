@@ -1,10 +1,8 @@
 {
 	"ImportPath": "k8s.io/kubernetes",
 	"GoVersion": "go1.6",
-	"GodepVersion": "v66",
+	"GodepVersion": "v61",
 	"Packages": [
-		"github.com/ugorji/go/codec/codecgen",
-		"github.com/onsi/ginkgo/ginkgo",
 		"./..."
 	],
 	"Deps": [
@@ -215,7 +213,7 @@
 		},
 		{
 			"ImportPath": "github.com/codegangsta/negroni",
-			"Comment": "v0.1.0-62-g8d75e11",
+			"Comment": "v0.1-62-g8d75e11",
 			"Rev": "8d75e11374a1928608c906fe745b538483e7aeb2"
 		},
 		{
@@ -1154,9 +1152,9 @@
 			"Rev": "8096f47503459bcc74d1f4c487b7e6e42e5746b5"
 		},
 		{
-			"ImportPath": "github.com/mustwin/consul/api",
-			"Comment": "v0.6.4-292-g359541a",
-			"Rev": "359541a67d46a81411070894a2287bef092aeebb"
+			"ImportPath": "github.com/hashicorp/consul/api",
+			"Comment": "v0.6.4-233-g4d94ff1",
+			"Rev": "4d94ff1a66909b21612534a221d27a44a1dc58d3"
 		},
 		{
 			"ImportPath": "github.com/hashicorp/go-cleanhttp",
@@ -1376,41 +1374,6 @@
 		},
 		{
 			"ImportPath": "github.com/onsi/ginkgo/config",
-			"Comment": "v1.2.0-52-g2c2e9bb",
-			"Rev": "2c2e9bb47b4e44067024f29339588cac8b34dd12"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo",
-			"Comment": "v1.2.0-52-g2c2e9bb",
-			"Rev": "2c2e9bb47b4e44067024f29339588cac8b34dd12"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/convert",
-			"Comment": "v1.2.0-52-g2c2e9bb",
-			"Rev": "2c2e9bb47b4e44067024f29339588cac8b34dd12"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/interrupthandler",
-			"Comment": "v1.2.0-52-g2c2e9bb",
-			"Rev": "2c2e9bb47b4e44067024f29339588cac8b34dd12"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/nodot",
-			"Comment": "v1.2.0-52-g2c2e9bb",
-			"Rev": "2c2e9bb47b4e44067024f29339588cac8b34dd12"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/testrunner",
-			"Comment": "v1.2.0-52-g2c2e9bb",
-			"Rev": "2c2e9bb47b4e44067024f29339588cac8b34dd12"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/testsuite",
-			"Comment": "v1.2.0-52-g2c2e9bb",
-			"Rev": "2c2e9bb47b4e44067024f29339588cac8b34dd12"
-		},
-		{
-			"ImportPath": "github.com/onsi/ginkgo/ginkgo/watch",
 			"Comment": "v1.2.0-52-g2c2e9bb",
 			"Rev": "2c2e9bb47b4e44067024f29339588cac8b34dd12"
 		},
@@ -1833,10 +1796,6 @@
 		},
 		{
 			"ImportPath": "github.com/ugorji/go/codec",
-			"Rev": "f4485b318aadd133842532f841dc205a8e339d74"
-		},
-		{
-			"ImportPath": "github.com/ugorji/go/codec/codecgen",
 			"Rev": "f4485b318aadd133842532f841dc205a8e339d74"
 		},
 		{

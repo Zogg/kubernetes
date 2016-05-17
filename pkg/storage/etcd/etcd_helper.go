@@ -22,6 +22,8 @@ import (
 	"path"
 	"reflect"
 	"strings"
+	"net"
+	"net/http"
 	"time"
 
 	"k8s.io/kubernetes/pkg/api"
@@ -36,11 +38,88 @@ import (
 	"k8s.io/kubernetes/pkg/watch"
 
 	etcd "github.com/coreos/etcd/client"
+	"github.com/coreos/etcd/pkg/transport"
+	utilnet "k8s.io/kubernetes/pkg/util/net"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	
 	//"k8s.io/kubernetes/pkg/storage/consul"
 )
+
+// storage.Config object for etcd.
+type EtcdStorageConfig struct {
+	Config EtcdConfig
+	Codec  runtime.Codec
+}
+
+// implements storage.Config
+func (c *EtcdStorageConfig) GetType() string {
+	return "etcd"
+}
+
+// implements storage.Config
+func (c *EtcdStorageConfig) NewStorage() (storage.Interface, error) {
+	etcdClient, err := c.Config.newEtcdClient()
+	if err != nil {
+		return nil, err
+	}
+	func NewEtcdStorage(client etcd.Client, codec runtime.Codec, prefix string, quorum bool, cacheSize int) storage.Interface {
+	return NewEtcdStorage(etcdClient, c.Codec, c.Config.Prefix, c.Config.Quorum), nil
+}
+
+// Configuration object for constructing etcd.Config
+type EtcdConfig struct {
+	Prefix     string
+	ServerList []string
+	KeyFile    string
+	CertFile   string
+	CAFile     string
+	Quorum     bool
+}
+
+func (c *EtcdConfig) newEtcdClient() (etcd.Client, error) {
+	t, err := c.newHttpTransport()
+	if err != nil {
+		return nil, err
+	}
+
+	cli, err := etcd.New(etcd.Config{
+		Endpoints: c.ServerList,
+		Transport: t,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return cli, nil
+}
+
+func (c *EtcdConfig) newHttpTransport() (*http.Transport, error) {
+	info := transport.TLSInfo{
+		CertFile: c.CertFile,
+		KeyFile:  c.KeyFile,
+		CAFile:   c.CAFile,
+	}
+	cfg, err := info.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// Copied from etcd.DefaultTransport declaration.
+	// TODO: Determine if transport needs optimization
+	tr := utilnet.SetTransportDefaults(&http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: 10 * time.Second,
+		MaxIdleConnsPerHost: 500,
+		TLSClientConfig:     cfg,
+	})
+
+	return tr, nil
+}
 
 // Creates a new storage interface from the client
 // TODO: deprecate in favor of storage.Config abstraction over time
@@ -328,7 +407,7 @@ func (h *etcdHelper) extractObj(response *etcd.Response, inErr error, objPtr run
 		return body, nil, fmt.Errorf("unable to decode object %s into %v", gvk.String(), reflect.TypeOf(objPtr))
 	}
 	// being unable to set the version does not prevent the object from being extracted
-	_ = h.versioner.UpdateObject(objPtr, node.ModifiedIndex)
+	_ = h.versioner.UpdateObject(objPtr, node.Expiration, node.ModifiedIndex)
 	return body, node, err
 }
 
@@ -402,7 +481,7 @@ func (h *etcdHelper) decodeNodeList(nodes []*etcd.Node, filter storage.FilterFun
 				return err
 			}
 			// being unable to set the version does not prevent the object from being extracted
-			_ = h.versioner.UpdateObject(obj, node.ModifiedIndex)
+			_ = h.versioner.UpdateObject(obj, node.Expiration, node.ModifiedIndex)
 			if filter(obj) {
 				v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
 			}
@@ -524,7 +603,7 @@ func (h *etcdHelper) GuaranteedUpdate(ctx context.Context, key string, ptrToType
 		}
 
 		// Since update object may have a resourceVersion set, we need to clear it here.
-		if err := h.versioner.UpdateObject(ret, 0); err != nil {
+		if err := h.versioner.UpdateObject(ret, meta.Expiration, 0); err != nil {
 			return errors.New("resourceVersion cannot be set on objects store in etcd")
 		}
 
