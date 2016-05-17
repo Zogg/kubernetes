@@ -231,6 +231,7 @@ func TestEtcdList(t *testing.T) {
 		list, err := registry.ListPredicate(ctx, item.m, nil)
 		if err != nil {
 			t.Errorf("Unexpected error %v", err)
+			server.Terminate(t)
 			continue
 		}
 
