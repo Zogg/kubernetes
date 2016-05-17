@@ -34,13 +34,21 @@ import (
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/registry/generic"
 	"k8s.io/kubernetes/pkg/runtime"
-	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
-	"k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
-	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
+	"k8s.io/kubernetes/pkg/storage"
+	etcdtest "k8s.io/kubernetes/pkg/storage/etcd/etcdtest"
 	storagetesting "k8s.io/kubernetes/pkg/storage/testing"
+	storagefactory "k8s.io/kubernetes/pkg/storage/testing/factory"
 	"k8s.io/kubernetes/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/util/validation/field"
 )
+
+var factory storagefactory.TestServerFactory
+func TestMain(m *testing.M) {
+	storagefactory.RunTestsForStorageFactories(func(fac storagefactory.TestServerFactory) int {
+		factory = fac
+		return m.Run()
+	})
+}
 
 type testRESTStrategy struct {
 	runtime.ObjectTyper
@@ -87,10 +95,10 @@ func hasCreated(t *testing.T, pod *api.Pod) func(runtime.Object) bool {
 	}
 }
 
-func NewTestGenericEtcdRegistry(t *testing.T) (*etcdtesting.EtcdTestServer, *Etcd) {
+func NewTestGenericEtcdRegistry(t *testing.T) (storagefactory.TestServer, *Etcd) {
 	podPrefix := "/pods"
-	server := etcdtesting.NewEtcdTestClientServer(t)
-	s := etcdstorage.NewEtcdStorage(server.Client, testapi.Default.Codec(), etcdtest.PathPrefix(), false)
+	server := factory.NewTestClientServer(t)
+	s := storage.NewGenericWrapper( server.NewRawStorage(), testapi.Default.Codec(), etcdtest.PathPrefix() )
 	strategy := &testRESTStrategy{api.Scheme, api.SimpleNameGenerator, true, false, true}
 
 	return server, &Etcd{
@@ -375,6 +383,7 @@ func TestNoOpUpdates(t *testing.T) {
 
 	// Check whether we do not return empty result on no-op update.
 	if !reflect.DeepEqual(createResult, updateResult) {
+		t.Logf("on-op update shoulr have returned this: %#v", createResult)
 		t.Errorf("no-op update should return a correct value, got: %#v", updateResult)
 	}
 

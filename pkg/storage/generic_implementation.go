@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"path"
@@ -170,7 +171,7 @@ func(s *genericWrapper) GetToList(ctx context.Context, key string, filter Filter
 	key = s.prefixKey(key)
 	rawList := make([]generic.RawObject,0)
 	listVersion, err := s.generic.GetToList(ctx, key, &rawList)
-	if err != nil {
+	if err != nil && !IsNotFound(err) {
 		return err
 	}
 	return s.outputList(key, filter, listObj, listVersion, rawList)
@@ -275,15 +276,21 @@ func(s *genericWrapper) GuaranteedUpdate(ctx context.Context, key string, ptrToT
 		if err != nil {
 			return err
 		}
+		if bytes.Compare(raw.Data, data) == 0 {
+			return s.extractObj(raw, nil, ptrToType, ignoreNotFound)
+		}
 		raw.Data = data
 		succeeded, err := s.generic.Set(ctx, key, &raw)
 		if err != nil {
+			if IsNodeExist(err) || IsTestFailed(err) {
+				continue
+			}
 			if !ignoreNotFound || !IsNotFound(err) {
 				return err
 			}
 		}
 		if succeeded {
-			return nil
+			return s.extractObj(raw, nil, ptrToType, ignoreNotFound)
 		}
 	}
 }
