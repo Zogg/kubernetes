@@ -129,6 +129,19 @@ func newKube2Consul(ca *fakeConsulAgent, ck *fakeConsulKV) *kube2consul {
 		servicesStore:  cache.NewStore(cache.MetaNamespaceKeyFunc),
 	}
 }
+func newPod(namespace, podName, podIP string) kapi.Pod {
+	pod := kapi.Pod{
+		ObjectMeta: kapi.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+		},
+		Status: kapi.PodStatus{
+			PodIP: podIP,
+		},
+	}
+
+	return pod
+}
 
 func TestMain(m *testing.M) {
 	flag.Set("v", "3")
@@ -182,4 +195,57 @@ func TestDeleteSinglePortService(t *testing.T) {
 	assert.Len(t, fca.writes, 1)
 	k2c.removeService(&service)
 	assert.Empty(t, fca.writes)
+}
+
+func newPod(namespace, podName, podIP string) kapi.Pod {
+	pod := kapi.Pod{
+		ObjectMeta: kapi.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+		},
+		Status: kapi.PodStatus{
+			PodIP: podIP,
+		},
+	}
+
+	return pod
+}
+
+func TestPodDns(t *testing.T) {
+	const (
+		testPodIP      = "1.2.3.4"
+		sanitizedPodIP = "1-2-3-4"
+		testNamespace  = "default"
+		testPodName    = "testPod"
+	)
+	fck := &fakeConsulKV{make(map[string]*consulApi.KVPair)}
+	fca := &fakeConsulAgent{make(map[string]string)}
+	k2c := newKube2Consul(fca, fck)
+
+	// create pod without ip address yet
+	pod := newPod(testNamespace, testPodName, "")
+	k2c.handlePodCreate(&pod)
+	assert.Empty(t, fck.writes)
+
+	// create pod
+	pod = newPod(testNamespace, testPodName, testPodIP)
+	k2c.handlePodCreate(&pod)
+	// assertDnsPodEntryInConsulClient(t, fck, sanitizedPodIP, testNamespace)
+
+	// update pod with same ip
+	newPod := pod
+	newPod.Status.PodIP = testPodIP
+	k2c.handlePodUpdate(&pod, &newPod)
+	// assertDnsPodEntryInConsulClient(t, fck, sanitizedPodIP, testNamespace)
+
+	// update pod with different ip's
+	newPod = pod
+	newPod.Status.PodIP = "4.3.2.1"
+	k2c.handlePodUpdate(&pod, &newPod)
+	// assertDnsPodEntryInConsulClient(t, fck, sanitizedPodIP, testNamespace)
+	// assertDnsPodEntryNotInConsulClient(t, fck, "1-2-3-4", testNamespace)
+
+	// Delete the pod
+	// k2c.handlePodDelete(&newPod)
+	//assert.Empty(t, fck.writes)
 }
