@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/client/cache"
+	"os"
 	"path"
 	"testing"
 )
@@ -129,12 +130,16 @@ func newKube2Consul(ca *fakeConsulAgent, ck *fakeConsulKV) *kube2consul {
 	}
 }
 
+func TestMain(m *testing.M) {
+	flag.Set("v", "3")
+	os.Exit(m.Run())
+}
+
 func TestAddSinglePortService(t *testing.T) {
 	const (
 		testService   = "testservice"
 		testNamespace = "default"
 	)
-	flag.Set("v", "3")
 	fck := &fakeConsulKV{make(map[string]*consulApi.KVPair)}
 	fca := &fakeConsulAgent{make(map[string]string)}
 	k2c := newKube2Consul(fca, fck)
@@ -144,4 +149,37 @@ func TestAddSinglePortService(t *testing.T) {
 	assert.Equal(t, 1, len(fca.writes))
 
 	assertDnsServiceEntryInConsulAgent(t, fca, testService, testNamespace, hostPort)
+}
+
+func TestUpdateSinglePortService(t *testing.T) {
+	const (
+		testService   = "testservice"
+		testNamespace = "default"
+	)
+	fck := &fakeConsulKV{make(map[string]*consulApi.KVPair)}
+	fca := &fakeConsulAgent{make(map[string]string)}
+	k2c := newKube2Consul(fca, fck)
+	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
+	k2c.newService(&service)
+	assert.Len(t, fca.writes, 1)
+	newService := service
+	newService.Spec.ClusterIP = "0.0.0.0"
+	k2c.updateService(&service, &newService)
+	hostPort := getHostPort(&newService)
+	assertDnsServiceEntryInConsulAgent(t, fca, testService, testNamespace, hostPort)
+}
+
+func TestDeleteSinglePortService(t *testing.T) {
+	const (
+		testService   = "testservice"
+		testNamespace = "default"
+	)
+	fck := &fakeConsulKV{make(map[string]*consulApi.KVPair)}
+	fca := &fakeConsulAgent{make(map[string]string)}
+	k2c := newKube2Consul(fca, fck)
+	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
+	k2c.newService(&service)
+	assert.Len(t, fca.writes, 1)
+	k2c.removeService(&service)
+	assert.Empty(t, fca.writes)
 }
