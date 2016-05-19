@@ -134,7 +134,7 @@ func(s *genericWrapper) Watch(ctx context.Context, key string, resourceVersion s
 	if filter == nil {
 		filter = func(obj runtime.Object) bool { return true }
 	}
-	return newGenericWatcher(raw, s, filter), nil
+	return newGenericWatcher(raw, s, filter, key), nil
 }
 
 func(s *genericWrapper) WatchList(ctx context.Context, key string, resourceVersion string, filter FilterFunc) (watch.Interface, error) {
@@ -146,7 +146,7 @@ func(s *genericWrapper) WatchList(ctx context.Context, key string, resourceVersi
 	if err != nil {
 		return nil, err
 	}
-	return newGenericWatcher(raw, s, filter), nil
+	return newGenericWatcher(raw, s, filter, key), nil
 }
 
 
@@ -381,15 +381,17 @@ type genericWatcher struct {
 	raw         generic.InterfaceRawWatch
 	storage     *genericWrapper
 	filter      FilterFunc
+	name        string
 }
 
-func newGenericWatcher(raw generic.InterfaceRawWatch, storage *genericWrapper, filter FilterFunc) *genericWatcher {
+func newGenericWatcher(raw generic.InterfaceRawWatch, storage *genericWrapper, filter FilterFunc, name string) *genericWatcher {
 	ret := &genericWatcher{
 		resultChan: make(chan watch.Event, 100),
 		stopChan:   make(chan struct{}),
 		raw:        raw,
 		storage:    storage,
 		filter:     filter,
+		name:       name,
 	}
 	go ret.run()
 	return ret
@@ -411,44 +413,43 @@ func(w *genericWatcher) run() {
 					evOut.Object = evIn.ErrorStatus.(runtime.Object)
 					w.resultChan<-evOut
 					return
-				} else if evOut.Type == watch.Modified && len(evIn.Current.Data) != 0 && len(evIn.Previous.Data) != 0 {
-					objCur, err := w.decodeObject(&evIn.Current)
-					if err != nil {
-						continue
+				} else {
+					var curFilt, prevFilt bool
+					if len(evIn.Current.Data) > 0 {
+						obj, err := w.decodeObject(&evIn.Current)
+						if err != nil {
+							glog.Infof("Watcher-cooked %s: error ignore", w.name)
+							continue
+						}
+						curFilt = w.filter(obj)
+						if curFilt {
+							evOut.Object = obj
+						}
 					}
-					objPrev, err := w.decodeObject(&evIn.Previous)
-					if err != nil {
-						continue
+					if len(evIn.Previous.Data) > 0 {
+						obj, err := w.decodeObject(&evIn.Previous)
+						if err != nil {
+							glog.Infof("Watcher-cooked %s: error ignore", w.name)
+							continue
+						}
+						prevFilt = w.filter(obj)
+						if prevFilt {
+							evOut.Object = obj
+						}
 					}
-					evOut.Object = objCur
-					curFilt := w.filter(objCur)
-					prevFilt := w.filter(objPrev)
 					switch {
 						case prevFilt && !curFilt:
 							evOut.Type = watch.Deleted
-							evOut.Object = objPrev
 						
 						case !prevFilt && curFilt:
 							evOut.Type = watch.Added
-							evOut.Object = objCur
 						
 						case !prevFilt && !curFilt:
 							continue
+							
+						default:
+							evOut.Type = watch.Modified
 					}
-				} else if len(evIn.Current.Data) > 0 {
-					obj, err := w.decodeObject(&evIn.Current)
-					if err != nil {
-						//TODO: glog
-						continue
-					}
-					evOut.Object = obj
-				} else if len(evIn.Previous.Data) > 0 {
-					obj, err := w.decodeObject(&evIn.Previous)
-					if err != nil {
-						//TODO: glog
-						continue
-					}
-					evOut.Object = obj
 				}
 				if evOut.Type != "" { 
 					select {
@@ -464,13 +465,13 @@ func(w *genericWatcher) run() {
 
 func(w *genericWatcher) cleanup() {
 	close(w.resultChan)
-	//close(w.stopChan)
+	w.raw.Stop()
 }
 
 func (w *genericWatcher) decodeObject(raw *generic.RawObject) (runtime.Object, error) {
-	//if obj, found := w.storage.getFromCache(raw.Version, Everything); found {
-	//	return obj, nil
-	//}
+	if obj, found := w.storage.getFromCache(raw.Version, Everything); found {
+		return obj, nil
+	}
 
 	obj, err := runtime.Decode(w.storage.codec, raw.Data)
 	if err != nil {
@@ -506,7 +507,6 @@ func (w *genericWatcher) decodeObject(raw *generic.RawObject) (runtime.Object, e
 
 func(w *genericWatcher) Stop() {
 	if atomic.SwapUint32( &w.stopped, 1 ) == 0 {
-		w.raw.Stop()
 		close(w.stopChan)
 	}
 }
