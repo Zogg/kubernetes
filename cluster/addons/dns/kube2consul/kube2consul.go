@@ -95,18 +95,20 @@ func sanitizeIP(ip string) string {
 }
 
 func buildDNSNameString(labels ...string) string {
+	// Note: Consul does not support '.' chars in keys
 	var res string
 	for _, label := range labels {
 		if res == "" {
 			res = label
 		} else {
-			res = fmt.Sprintf("%s.%s", label, res)
+			res = fmt.Sprintf("%s/%s", res, label)
 		}
 	}
 	return res
 }
 
 func (ks *kube2consul) addDNS(record string, service *kapi.Service) error {
+	glog.V(2).Infof("Attempting to add record: %v", record)
 	if strings.Contains(record, ".") {
 		glog.V(1).Infof("Service names containing '.' are not supported: %s\n", service.Name)
 		return nil
@@ -148,8 +150,8 @@ func (kc *kube2consul) newService(obj interface{}) {
 	}
 
 	if s, ok := obj.(*kapi.Service); ok {
-		name := bridge.BuildDNSNameString(s.Name, s.Namespace)
-		if err := kc.addDNS(s.Name, s); err != nil {
+		name := buildDNSNameString(kc.domain, serviceSubdomain, s.Namespace, s.Name)
+		if err := kc.addDNS(name, s); err != nil {
 			glog.V(1).Infof("Failed to add service: %v due to: %v", name, err)
 		}
 	}
@@ -246,7 +248,7 @@ func (kc *kube2consul) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service
 
 func (kc *kube2consul) handleServiceAdd(obj interface{}) {
 	if s, ok := obj.(*kapi.Service); ok {
-		name := bridge.BuildDNSNameString(kc.domain, serviceSubdomain, s.Namespace, s.Name)
+		name := buildDNSNameString(kc.domain, serviceSubdomain, s.Namespace, s.Name)
 		serviceName := fmt.Sprintf("kube2consul-service-%s", s.Name)
 		if err := kc.addDNS(serviceName, s); err != nil {
 			glog.V(1).Infof("Failed to add service: %v due to: %v", name, err)

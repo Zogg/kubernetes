@@ -17,11 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"flag"
 	"fmt"
 	consulApi "github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	kapi "k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/client/cache"
+	"path"
 	"testing"
 )
 
@@ -43,6 +46,9 @@ func (fa *fakeConsulAgent) ServiceDeregister(serviceID string) error {
 }
 
 // FIXME: instead of duplicating, extract these methods from kube2sky tests
+func getConsulPathForA(name, namespace, subDomain string) string {
+	return path.Join(basePath, subDomain, namespace, name)
+}
 
 type hostPort struct {
 	Host string `json:"host"`
@@ -55,6 +61,21 @@ func getHostPort(service *kapi.Service) *hostPort {
 		Port: int(service.Spec.Ports[0].Port),
 	}
 }
+
+func assertDnsServiceEntryInConsulAgent(t *testing.T, eca *fakeConsulAgent, serviceName, namespace string, expectedHostPort *hostPort) {
+	key := getConsulPathForA(serviceName, namespace, serviceSubDomain)
+	value := eca.writes[key]
+
+	require.True(t, len(value) > 0, "entry not found.")
+
+	actualHostPort := value
+	host := expectedHostPort.Host
+	port := expectedHostPort.Port
+
+	expectedValue := fmt.Sprintf("%s:%d", host, port)
+	assert.Equal(t, expectedValue, actualHostPort)
+}
+
 func newService(namespace, serviceName, clusterIP, portName string, portNumber int) kapi.Service {
 	service := kapi.Service{
 		ObjectMeta: kapi.ObjectMeta{
@@ -72,8 +93,8 @@ func newService(namespace, serviceName, clusterIP, portName string, portNumber i
 }
 
 const (
-	testDomain       = "cluster.local."
-	basePath         = "/skydns/local/cluster"
+	testDomain       = "cluster_local"
+	basePath         = "cluster_local"
 	serviceSubDomain = "svc"
 	podSubDomain     = "pod"
 )
@@ -113,12 +134,14 @@ func TestAddSinglePortService(t *testing.T) {
 		testService   = "testservice"
 		testNamespace = "default"
 	)
+	flag.Set("v", "3")
 	fck := &fakeConsulKV{make(map[string]*consulApi.KVPair)}
 	fca := &fakeConsulAgent{make(map[string]string)}
 	k2c := newKube2Consul(fca, fck)
 	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
 	k2c.newService(&service)
-	// expectedValue := getHostPort(&service)
+	hostPort := getHostPort(&service)
+	assert.Equal(t, 1, len(fca.writes))
 
-	assert.Equal(t, 1, len(fck.writes))
+	assertDnsServiceEntryInConsulAgent(t, fca, testService, testNamespace, hostPort)
 }
