@@ -117,28 +117,58 @@ func(w *consulWatch) watchDeep(key string, version uint64, kvsLast []*consulapi.
 				cont = w.emitEvent( watch.Deleted, nil, kvsLast[j] )
 			}
 
+			if j >= len(kvsLast) {
+				cont = w.emitEvent( watch.Added, kv, nil )
+				if !cont {
+					return
+				}
+				continue
+			}
+
 			kvLast := kvsLast[j]
 			
 			if kv.Key != kvLast.Key {
 				cont = w.emitEvent( watch.Added, kv, nil )
-			} else if kv.ModifyIndex > version {
-				cont = w.emitEvent( watch.Modified, kv, kvsLast[j] )
+			} else {
+				j++
+				if kv.ModifyIndex > version {
+					if kv.CreateIndex > version {
+						cont = w.emitEvent( watch.Added, kv, nil )
+					} else {
+						cont = w.emitEvent( watch.Modified, kv, kvsLast[j] )
+					}
+				}
 			}
 					
 			if !cont {
 				return
 			}
 		}
+		for ; j < len(kvsLast); j++ {
+			cont = w.emitEvent( watch.Deleted, nil, kvsLast[j] )
+		}
+
 		
 		kvsLast = kvs
-		version = versionNext
-		kvs, qm, err := w.storage.ConsulKv.List( key, &consulapi.QueryOptions{ WaitIndex: version, WaitTime: w.storage.Config.WaitTimeout } )
-		if err != nil {
-			w.emitError( key, err )
-			return
+		for {
+			version = versionNext
+			var qm *consulapi.QueryMeta
+			var err error
+			kvs, qm, err = w.storage.ConsulKv.List( key, &consulapi.QueryOptions{ WaitIndex: version, WaitTime: w.storage.Config.WaitTimeout } )
+			if err != nil {
+				w.emitError( key, err )
+				return
+			}
+			// if we did not timeout
+			if len(kvs) != 0 || qm.HttpStatusCode != 200 {
+				versionNext = qm.LastIndex
+				break
+			}
+			if w.stopped {
+				return
+			}
 		}
 		sort.Sort(ByKey(kvs))
-		versionNext = qm.LastIndex
 	}
 }
 
