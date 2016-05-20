@@ -221,10 +221,12 @@ func setupSignalHandlers() {
 	}()
 }
 
-func (ks *kube2consul) updateService(oldObj, newObj interface{}) {
+func (kc *kube2consul) updateService(oldObj, newObj interface{}) {
+	kc.handleServiceAdd(newObj)
 }
 
 func (kc *kube2consul) removeService(obj interface{}) {
+	kc.handleServiceRemove(obj)
 }
 
 func (kc *kube2consul) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service, error) {
@@ -277,12 +279,15 @@ func (kc *kube2consul) deleteKV(name string) {
 
 func (kc *kube2consul) handlePodCreate(obj interface{}) {
 	if p, ok := obj.(*kapi.Pod); ok {
-		name := p.Name
-		volumes := p.Spec.Volumes
-		podName := fmt.Sprintf("kube2consul-pod-%s", name)
-		volumesJson, _ := json.Marshal(volumes)
-		volumesStr := fmt.Sprintf("%v", volumesJson)
-		kc.storeKV(podName, volumesStr)
+		// If the pod ip is not yet available, do not attempt to create.
+		if p.Status.PodIP != "" {
+			podIP := sanitizeIP(p.Status.PodIP)
+			name := buildDNSNameString(kc.domain, podSubdomain, p.Namespace, podIP)
+			volumes := p.Spec.Volumes
+			volumesJson, _ := json.Marshal(volumes)
+			volumesStr := fmt.Sprintf("%v", volumesJson)
+			kc.storeKV(name, volumesStr)
+		}
 	}
 }
 
@@ -300,6 +305,7 @@ func (kc *kube2consul) handlePodUpdate(old interface{}, newObj interface{}) {
 func (kc *kube2consul) handlePodRemove(obj interface{}) {
 	if p, ok := obj.(*kapi.Pod); ok {
 		name := p.Name
+		glog.V(2).Infof("Attempting to remove pod: %v", name)
 		podName := fmt.Sprintf("kube2consul-pod-%s", name)
 		kc.deleteKV(podName)
 	}
