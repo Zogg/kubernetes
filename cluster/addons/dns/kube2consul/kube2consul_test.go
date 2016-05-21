@@ -78,14 +78,14 @@ func assertDnsServiceEntryInConsulAgent(t *testing.T, eca *fakeConsulAgent, serv
 }
 
 func assertDnsPodEntryInConsulKV(t *testing.T, ekc *fakeConsulKV, podName, namespace string) {
-	key := getConsulPathForA(podName, namespace, podSubDomain)
+	key := podName
 	_, ok := ekc.writes[key]
 
 	require.True(t, ok, "entry not found.")
 }
 
 func assertDnsPodEntryNotInConsulKV(t *testing.T, ekc *fakeConsulKV, podName, namespace string) {
-	key := getConsulPathForA(podName, namespace, serviceSubDomain)
+	key := podName
 	_, ok := ekc.writes[key]
 
 	require.False(t, ok, "entry was found.")
@@ -237,22 +237,21 @@ func TestPodDns(t *testing.T) {
 	k2c.handlePodCreate(&pod)
 	assertDnsPodEntryInConsulKV(t, fck, sanitizedPodIP, testNamespace)
 
-	/*
-		// update pod with same ip
-		newPod := pod
-		newPod.Status.PodIP = testPodIP
-		k2c.handlePodUpdate(&pod, &newPod)
-		assertDnsPodEntryInConsulKV(t, fck, sanitizedPodIP, testNamespace)
+	// update pod with same ip
+	newPod := pod
+	newPod.Status.PodIP = testPodIP
+	k2c.handlePodUpdate(&pod, &newPod)
+	assertDnsPodEntryInConsulKV(t, fck, sanitizedPodIP, testNamespace)
 
-		// update pod with different ip's
-		newPod = pod
-		newPod.Status.PodIP = "4.3.2.1"
-		k2c.handlePodUpdate(&pod, &newPod)
-		assertDnsPodEntryInConsulKV(t, fck, sanitizedPodIP, testNamespace)
-		assertDnsPodEntryNotInConsulKV(t, fck, "1-2-3-4", testNamespace)
+	// update pod with different ip's
+	newPod = pod
+	newPod.Status.PodIP = "4.3.2.1"
+	k2c.handlePodUpdate(&pod, &newPod)
 
-		// Delete the pod
-		k2c.handlePodRemove(&newPod)
-		assert.Empty(t, fck.writes)
-	*/
+	assertDnsPodEntryInConsulKV(t, fck, "4-3-2-1", testNamespace)
+	assertDnsPodEntryNotInConsulKV(t, fck, "1-2-3-4", testNamespace)
+
+	// Delete the pod
+	k2c.handlePodRemove(&newPod)
+	assert.Empty(t, fck.writes)
 }

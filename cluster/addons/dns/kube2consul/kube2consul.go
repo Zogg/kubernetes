@@ -282,32 +282,35 @@ func (kc *kube2consul) handlePodCreate(obj interface{}) {
 		// If the pod ip is not yet available, do not attempt to create.
 		if p.Status.PodIP != "" {
 			podIP := sanitizeIP(p.Status.PodIP)
-			name := buildDNSNameString(kc.domain, podSubdomain, p.Namespace, podIP)
 			volumes := p.Spec.Volumes
 			volumesJson, _ := json.Marshal(volumes)
 			volumesStr := fmt.Sprintf("%v", volumesJson)
-			kc.storeKV(name, volumesStr)
+			kc.storeKV(podIP, volumesStr)
 		}
 	}
 }
 
-func (kc *kube2consul) handlePodUpdate(old interface{}, newObj interface{}) {
-	if p, ok := newObj.(*kapi.Pod); ok {
-		name := p.Name
-		volumes := p.Spec.Volumes
-		podName := fmt.Sprintf("kube2consul-pod-%s", name)
-		volumesJson, _ := json.Marshal(volumes)
-		volumesStr := fmt.Sprintf("%v", volumesJson)
-		kc.storeKV(podName, volumesStr)
+func (kc *kube2consul) handlePodUpdate(oldObj interface{}, newObj interface{}) {
+	if np, ok := newObj.(*kapi.Pod); ok {
+
+		if p, ok := oldObj.(*kapi.Pod); ok {
+			oldPodIP := sanitizeIP(p.Status.PodIP)
+			kc.deleteKV(oldPodIP)
+
+			newPodIP := sanitizeIP(np.Status.PodIP)
+			volumes := p.Spec.Volumes
+			volumesJson, _ := json.Marshal(volumes)
+			volumesStr := fmt.Sprintf("%v", volumesJson)
+			kc.storeKV(newPodIP, volumesStr)
+		}
 	}
 }
 
 func (kc *kube2consul) handlePodRemove(obj interface{}) {
 	if p, ok := obj.(*kapi.Pod); ok {
-		name := p.Name
-		glog.V(2).Infof("Attempting to remove pod: %v", name)
-		podName := fmt.Sprintf("kube2consul-pod-%s", name)
-		kc.deleteKV(podName)
+		podIP := sanitizeIP(p.Status.PodIP)
+		glog.V(2).Infof("Attempting to remove pod: %v", podIP)
+		kc.deleteKV(podIP)
 	}
 }
 
