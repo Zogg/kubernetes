@@ -22,10 +22,9 @@ import (
 	consulApi "github.com/hashicorp/consul/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	kapi "k8s.io/kubernetes/pkg/api"
+	testHelper "k8s.io/kubernetes/cluster/addons/dns/testHelper"
 	"k8s.io/kubernetes/pkg/client/cache"
 	"os"
-	"path"
 	"testing"
 )
 
@@ -46,25 +45,14 @@ func (fa *fakeConsulAgent) ServiceDeregister(serviceID string) error {
 	return nil
 }
 
-// FIXME: instead of duplicating, extract these methods from kube2sky tests
-func getConsulPathForA(name, namespace, subDomain string) string {
-	return path.Join(basePath, subDomain, namespace, name)
-}
+const (
+	testDomain       = "cluster_local"
+	serviceSubDomain = "svc"
+	podSubDomain     = "pod"
+)
 
-type hostPort struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
-}
-
-func getHostPort(service *kapi.Service) *hostPort {
-	return &hostPort{
-		Host: service.Spec.ClusterIP,
-		Port: int(service.Spec.Ports[0].Port),
-	}
-}
-
-func assertDnsServiceEntryInConsulAgent(t *testing.T, eca *fakeConsulAgent, serviceName, namespace string, expectedHostPort *hostPort) {
-	key := getConsulPathForA(serviceName, namespace, serviceSubDomain)
+func assertDnsServiceEntryInConsulAgent(t *testing.T, eca *fakeConsulAgent, serviceName, namespace string, expectedHostPort *testHelper.HostPort) {
+	key := testHelper.GetResourcePathForA(serviceName, namespace, serviceSubDomain)
 	value := eca.writes[key]
 
 	require.True(t, len(value) > 0, "entry not found.")
@@ -90,29 +78,6 @@ func assertDnsPodEntryNotInConsulKV(t *testing.T, ekc *fakeConsulKV, podName, na
 
 	require.False(t, ok, "entry was found.")
 }
-
-func newService(namespace, serviceName, clusterIP, portName string, portNumber int) kapi.Service {
-	service := kapi.Service{
-		ObjectMeta: kapi.ObjectMeta{
-			Name:      serviceName,
-			Namespace: namespace,
-		},
-		Spec: kapi.ServiceSpec{
-			ClusterIP: clusterIP,
-			Ports: []kapi.ServicePort{
-				{Port: int32(portNumber), Name: portName, Protocol: "TCP"},
-			},
-		},
-	}
-	return service
-}
-
-const (
-	testDomain       = "cluster_local"
-	basePath         = "cluster_local"
-	serviceSubDomain = "svc"
-	podSubDomain     = "pod"
-)
 
 type fakeConsulKV struct {
 	writes map[string]*consulApi.KVPair
@@ -157,9 +122,9 @@ func TestAddSinglePortService(t *testing.T) {
 	fck := &fakeConsulKV{make(map[string]*consulApi.KVPair)}
 	fca := &fakeConsulAgent{make(map[string]string)}
 	k2c := newKube2Consul(fca, fck)
-	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
+	service := testHelper.NewService(testNamespace, testService, "1.2.3.4", "", 0)
 	k2c.newService(&service)
-	hostPort := getHostPort(&service)
+	hostPort := testHelper.GetHostPort(&service)
 	assert.Equal(t, 1, len(fca.writes))
 
 	assertDnsServiceEntryInConsulAgent(t, fca, testService, testNamespace, hostPort)
@@ -173,13 +138,13 @@ func TestUpdateSinglePortService(t *testing.T) {
 	fck := &fakeConsulKV{make(map[string]*consulApi.KVPair)}
 	fca := &fakeConsulAgent{make(map[string]string)}
 	k2c := newKube2Consul(fca, fck)
-	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
+	service := testHelper.NewService(testNamespace, testService, "1.2.3.4", "", 0)
 	k2c.newService(&service)
 	assert.Len(t, fca.writes, 1)
 	newService := service
 	newService.Spec.ClusterIP = "0.0.0.0"
 	k2c.updateService(&service, &newService)
-	hostPort := getHostPort(&newService)
+	hostPort := testHelper.GetHostPort(&newService)
 	assertDnsServiceEntryInConsulAgent(t, fca, testService, testNamespace, hostPort)
 }
 
@@ -191,25 +156,11 @@ func TestDeleteSinglePortService(t *testing.T) {
 	fck := &fakeConsulKV{make(map[string]*consulApi.KVPair)}
 	fca := &fakeConsulAgent{make(map[string]string)}
 	k2c := newKube2Consul(fca, fck)
-	service := newService(testNamespace, testService, "1.2.3.4", "", 0)
+	service := testHelper.NewService(testNamespace, testService, "1.2.3.4", "", 0)
 	k2c.newService(&service)
 	assert.Len(t, fca.writes, 1)
 	k2c.removeService(&service)
 	assert.Empty(t, fca.writes)
-}
-
-func newPod(namespace, podName, podIP string) kapi.Pod {
-	pod := kapi.Pod{
-		ObjectMeta: kapi.ObjectMeta{
-			Name:      podName,
-			Namespace: namespace,
-		},
-		Status: kapi.PodStatus{
-			PodIP: podIP,
-		},
-	}
-
-	return pod
 }
 
 func TestPodDns(t *testing.T) {
@@ -224,12 +175,12 @@ func TestPodDns(t *testing.T) {
 	k2c := newKube2Consul(fca, fck)
 
 	// create pod without ip address yet
-	pod := newPod(testNamespace, testPodName, "")
+	pod := testHelper.NewPod(testNamespace, testPodName, "")
 	k2c.handlePodCreate(&pod)
 	assert.Empty(t, fck.writes)
 
 	// create pod
-	pod = newPod(testNamespace, testPodName, testPodIP)
+	pod = testHelper.NewPod(testNamespace, testPodName, testPodIP)
 	k2c.handlePodCreate(&pod)
 	assertDnsPodEntryInConsulKV(t, fck, sanitizedPodIP, testNamespace)
 
