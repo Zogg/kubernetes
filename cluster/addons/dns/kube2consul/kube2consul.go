@@ -207,17 +207,9 @@ func setupSignalHandlers() {
 	}()
 }
 
-func (kc *kube2consul) newService(obj interface{}) {
-	kc.handleServiceAdd(obj)
-}
-
 func (kc *kube2consul) updateService(oldObj, newObj interface{}) {
-	kc.handleServiceRemove(oldObj)
-	kc.handleServiceAdd(newObj)
-}
-
-func (kc *kube2consul) removeService(obj interface{}) {
-	kc.handleServiceRemove(obj)
+	kc.removeService(oldObj)
+	kc.newService(newObj)
 }
 
 func (kc *kube2consul) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service, error) {
@@ -239,7 +231,7 @@ func (kc *kube2consul) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service
 	return nil, fmt.Errorf("got a non service object in services store %v", obj)
 }
 
-func (kc *kube2consul) handleServiceAdd(obj interface{}) {
+func (kc *kube2consul) newService(obj interface{}) {
 	_, err := consulApi.NewClient(consulApi.DefaultConfig())
 	if err != nil {
 		panic(err)
@@ -254,7 +246,7 @@ func (kc *kube2consul) handleServiceAdd(obj interface{}) {
 	}
 }
 
-func (kc *kube2consul) handleServiceRemove(obj interface{}) {
+func (kc *kube2consul) removeService(obj interface{}) {
 	if s, ok := obj.(*kapi.Service); ok {
 		name := buildDNSNameString(kc.domain, serviceSubdomain, s.Namespace, s.Name)
 		glog.V(2).Infof("***Removing service %v", name)
