@@ -143,20 +143,6 @@ func (kc *kube2consul) removeDNS(record string) error {
 	return kc.consulAgent.ServiceDeregister(record)
 }
 
-func (kc *kube2consul) newService(obj interface{}) {
-	_, err := consulApi.NewClient(consulApi.DefaultConfig())
-	if err != nil {
-		panic(err)
-	}
-
-	if s, ok := obj.(*kapi.Service); ok {
-		name := buildDNSNameString(kc.domain, serviceSubdomain, s.Namespace, s.Name)
-		if err := kc.addDNS(name, s); err != nil {
-			glog.V(1).Infof("Failed to add service: %v due to: %v", name, err)
-		}
-	}
-}
-
 func newConsulClient(consulAgent string) (*consulApi.Client, error) {
 	var (
 		client *consulApi.Client
@@ -221,7 +207,12 @@ func setupSignalHandlers() {
 	}()
 }
 
+func (kc *kube2consul) newService(obj interface{}) {
+	kc.handleServiceAdd(obj)
+}
+
 func (kc *kube2consul) updateService(oldObj, newObj interface{}) {
+	kc.handleServiceRemove(oldObj)
 	kc.handleServiceAdd(newObj)
 }
 
@@ -249,10 +240,15 @@ func (kc *kube2consul) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service
 }
 
 func (kc *kube2consul) handleServiceAdd(obj interface{}) {
+	_, err := consulApi.NewClient(consulApi.DefaultConfig())
+	if err != nil {
+		panic(err)
+	}
+
 	if s, ok := obj.(*kapi.Service); ok {
 		name := buildDNSNameString(kc.domain, serviceSubdomain, s.Namespace, s.Name)
-		serviceName := fmt.Sprintf("kube2consul-service-%s", s.Name)
-		if err := kc.addDNS(serviceName, s); err != nil {
+		glog.V(2).Infof("***Adding service %v", name)
+		if err := kc.addDNS(name, s); err != nil {
 			glog.V(1).Infof("Failed to add service: %v due to: %v", name, err)
 		}
 	}
@@ -260,9 +256,9 @@ func (kc *kube2consul) handleServiceAdd(obj interface{}) {
 
 func (kc *kube2consul) handleServiceRemove(obj interface{}) {
 	if s, ok := obj.(*kapi.Service); ok {
-		name := bridge.BuildDNSNameString(s.Name, s.Namespace)
-		serviceName := fmt.Sprintf("kube2consul-service-%s", s.Name)
-		if err := kc.removeDNS(serviceName); err != nil {
+		name := buildDNSNameString(kc.domain, serviceSubdomain, s.Namespace, s.Name)
+		glog.V(2).Infof("***Removing service %v", name)
+		if err := kc.removeDNS(name); err != nil {
 			glog.V(1).Infof("Failed to remove service: %v due to: %v", name, err)
 		}
 	}

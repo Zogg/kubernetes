@@ -165,7 +165,6 @@ func TestAddSinglePortService(t *testing.T) {
 	assertDnsServiceEntryInConsulAgent(t, fca, testService, testNamespace, hostPort)
 }
 
-/*
 func TestUpdateSinglePortService(t *testing.T) {
 	const (
 		testService   = "testservice"
@@ -183,9 +182,7 @@ func TestUpdateSinglePortService(t *testing.T) {
 	hostPort := getHostPort(&newService)
 	assertDnsServiceEntryInConsulAgent(t, fca, testService, testNamespace, hostPort)
 }
-*/
 
-/*
 func TestDeleteSinglePortService(t *testing.T) {
 	const (
 		testService   = "testservice"
@@ -200,7 +197,6 @@ func TestDeleteSinglePortService(t *testing.T) {
 	k2c.removeService(&service)
 	assert.Empty(t, fca.writes)
 }
-*/
 
 func newPod(namespace, podName, podIP string) kapi.Pod {
 	pod := kapi.Pod{
