@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// kube2consul is a bridge between Kubernetes and SkyDNS.  It watches the
+// kube2consul is a bridge between Kubernetes and Consul.  It watches the
 // Kubernetes master for changes in Services and manifests them into consul
 // to serve as DNS records.
 package main
@@ -441,9 +441,9 @@ func main() {
 	kc.servicesStore = watchForServices(kubeClient, &kc)
 	kc.podsStore = watchPods(kubeClient, &kc)
 
-	// We declare kube2sky ready when:
+	// We declare kube2consul ready when:
 	// 1. It has retrieved the Kubernetes master service from the apiserver. If this
-	//    doesn't happen skydns will fail its liveness probe assuming that it can't
+	//    doesn't happen consul will fail its liveness probe assuming that it can't
 	//    perform any cluster local DNS lookups.
 	// 2. It has setup the 3 watches above.
 	// Once ready this container never flips to not-ready.
