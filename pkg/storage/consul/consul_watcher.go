@@ -135,7 +135,7 @@ func(w *consulWatch) watchDeep(key string, version uint64, kvsLast []*consulapi.
 					if kv.CreateIndex > version {
 						cont = w.emitEvent( watch.Added, kv, nil )
 					} else {
-						cont = w.emitEvent( watch.Modified, kv, kvsLast[j] )
+						cont = w.emitEvent( watch.Modified, kv, kvLast )
 					}
 				}
 			}
@@ -232,7 +232,6 @@ func(w *consulWatch) watchSingle(key string, version uint64, kvLast *consulapi.K
 }
 
 func(w *consulWatch) clean() {
-	close(w.stopChan)
 	close(w.resultChan)
 }
 
@@ -269,7 +268,8 @@ func(w *consulWatch) Stop() {
 	if w.stopped {
 		return
 	}
-	w.stopChan <- true
+	w.stopped = true
+	close(w.stopChan)
 }
 
 func(w *consulWatch) ResultChan() <-chan generic.RawEvent {
