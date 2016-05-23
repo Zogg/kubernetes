@@ -72,14 +72,14 @@ func assertDnsServiceEntryInConsulAgent(t *testing.T, eca *fakeConsulAgent, serv
 }
 
 func assertDnsPodEntryInConsulKV(t *testing.T, ekc *fakeConsulKV, podName, namespace string) {
-	key := podName
+	key := fmt.Sprintf("%v/%v/", podSubdomain, podName)
 	_, ok := ekc.writes[key]
 
 	require.True(t, ok, "entry not found.")
 }
 
 func assertDnsPodEntryNotInConsulKV(t *testing.T, ekc *fakeConsulKV, podName, namespace string) {
-	key := podName
+	key := fmt.Sprintf("%v/%v/", podSubdomain, podName)
 	_, ok := ekc.writes[key]
 
 	require.False(t, ok, "entry was found.")

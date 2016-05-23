@@ -50,8 +50,10 @@ const (
 	resyncPeriod = 30 * time.Minute
 	// A subdomain added to the user specified domain for all services.
 	serviceSubdomain = "svc"
-	// A subdomain added to the user specified dmoain for all pods.
+	// A subdomain added to the user specified domain for all pods.
 	podSubdomain = "pod"
+	// A subdomain added to the user specified endpoint for all endpoints.
+	endpointSubdomain = "endpoint"
 )
 
 var (
@@ -256,13 +258,15 @@ func (kc *kube2consul) removeService(obj interface{}) {
 	}
 }
 
-func (kc *kube2consul) storeKV(name string, value string) {
-	p := &consulApi.KVPair{Key: name, Value: []byte(value)}
+func (kc *kube2consul) storeKV(subDomain string, name string, value string) {
+	key := fmt.Sprintf("%v/%v/", subDomain, name)
+	p := &consulApi.KVPair{Key: key, Value: []byte(value)}
 	kc.consulKV.Put(p, nil)
 }
 
-func (kc *kube2consul) deleteKV(name string) {
-	kc.consulKV.Delete(name, nil)
+func (kc *kube2consul) deleteKV(subDomain string, name string) {
+	key := fmt.Sprintf("%v/%v/", subDomain, name)
+	kc.consulKV.Delete(key, nil)
 }
 
 func (kc *kube2consul) handlePodCreate(obj interface{}) {
@@ -273,7 +277,7 @@ func (kc *kube2consul) handlePodCreate(obj interface{}) {
 			volumes := p.Spec.Volumes
 			volumesJson, _ := json.Marshal(volumes)
 			volumesStr := fmt.Sprintf("%v", volumesJson)
-			kc.storeKV(podIP, volumesStr)
+			kc.storeKV(podSubdomain, podIP, volumesStr)
 		}
 	}
 }
@@ -283,13 +287,13 @@ func (kc *kube2consul) handlePodUpdate(oldObj interface{}, newObj interface{}) {
 
 		if p, ok := oldObj.(*kapi.Pod); ok {
 			oldPodIP := sanitizeIP(p.Status.PodIP)
-			kc.deleteKV(oldPodIP)
+			kc.deleteKV(podSubdomain, oldPodIP)
 
 			newPodIP := sanitizeIP(np.Status.PodIP)
 			volumes := p.Spec.Volumes
 			volumesJson, _ := json.Marshal(volumes)
 			volumesStr := fmt.Sprintf("%v", volumesJson)
-			kc.storeKV(newPodIP, volumesStr)
+			kc.storeKV(podSubdomain, newPodIP, volumesStr)
 		}
 	}
 }
@@ -298,7 +302,7 @@ func (kc *kube2consul) handlePodRemove(obj interface{}) {
 	if p, ok := obj.(*kapi.Pod); ok {
 		podIP := sanitizeIP(p.Status.PodIP)
 		glog.V(2).Infof("Attempting to remove pod: %v", podIP)
-		kc.deleteKV(podIP)
+		kc.deleteKV(podSubdomain, podIP)
 	}
 }
 
@@ -311,9 +315,8 @@ func (kc *kube2consul) handleEndpointAdd(obj interface{}) {
 			glog.V(1).Infof("Failed to get endpoint from %v", e.Name)
 		}
 		endpointsData, _ := json.Marshal(e)
-		name := fmt.Sprintf("kube2consul-endpoints-%s", svc.Name)
 		value := fmt.Sprintf("%s", endpointsData)
-		kc.storeKV(name, value)
+		kc.storeKV(serviceSubdomain, svc.Name, value)
 	}
 }
 
@@ -327,9 +330,8 @@ func (kc *kube2consul) handleEndpointUpdate(old interface{}, newObj interface{})
 			glog.V(1).Infof("Failed to get service from %v", e.Name)
 		}
 		endpointsData, _ := json.Marshal(e)
-		name := fmt.Sprintf("kube2consul-endpoints-%v", svc.Name)
 		value := fmt.Sprintf("%s", endpointsData)
-		kc.storeKV(name, value)
+		kc.storeKV(endpointSubdomain, svc.Name, value)
 	}
 }
 
@@ -343,8 +345,7 @@ func (kc *kube2consul) handleEndpointRemove(obj interface{}) {
 			glog.V(1).Infof("Failed to remove endpoint from %v", e.Name)
 		}
 		if e == nil {
-			name := fmt.Sprintf("kube2consul-endpoints-%v", svc.Name)
-			kc.deleteKV(name)
+			kc.deleteKV(endpointSubdomain, svc.Name)
 		}
 	}
 }
