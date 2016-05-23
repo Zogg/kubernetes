@@ -25,6 +25,7 @@ import (
 	testHelper "k8s.io/kubernetes/cluster/addons/dns/testHelper"
 	"k8s.io/kubernetes/pkg/client/cache"
 	"os"
+	"path"
 	"testing"
 )
 
@@ -49,10 +50,15 @@ const (
 	testDomain       = "cluster_local"
 	serviceSubDomain = "svc"
 	podSubDomain     = "pod"
+	basePath         = "cluster_local"
 )
 
+func getResourcePathForA(name, namespace, subDomain string) string {
+	return path.Join(basePath, subDomain, namespace, name)
+}
+
 func assertDnsServiceEntryInConsulAgent(t *testing.T, eca *fakeConsulAgent, serviceName, namespace string, expectedHostPort *testHelper.HostPort) {
-	key := testHelper.GetResourcePathForA(serviceName, namespace, serviceSubDomain)
+	key := getResourcePathForA(serviceName, namespace, serviceSubDomain)
 	value := eca.writes[key]
 
 	require.True(t, len(value) > 0, "entry not found.")
