@@ -248,10 +248,10 @@ func(s *genericWrapper) GuaranteedUpdate(ctx context.Context, key string, ptrToT
 	for {
 		obj := reflect.New(v.Type()).Interface().(runtime.Object)
 		raw := generic.RawObject{}
-		if err := s.generic.Get(ctx, key, &raw); err != nil && !IsNotFound(err) {
+		if err := s.generic.Get(ctx, key, &raw); err != nil && (!ignoreNotFound || !IsNotFound(err)) {
 			return err
 		}
-		if err := s.extractObj(raw, err, obj, ignoreNotFound); err != nil {
+		if err = s.extractObj(raw, err, obj, ignoreNotFound); err != nil {
 			return err
 		}
 		if err := checkPreconditions(key, raw.Version, preconditions, obj); err != nil {

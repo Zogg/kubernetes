@@ -240,7 +240,7 @@ func (s *ConsulKvStorage) Get(ctx context.Context, key string, raw *generic.RawO
 	if err != nil {
 		return toStorageErr(err, key, 0)
 	}
-	if kv == nil {
+	if kv == nil || len(kv.Value) == 0 {
 		return storage.NewKeyNotFoundError( key, 0 )
 	}
 	if raw != nil {
