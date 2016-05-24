@@ -92,7 +92,7 @@ type kube2consul struct {
 	mlock sync.Mutex
 }
 
-func sanitizeIP(ip string) string {
+func sanitizeString(ip string) string {
 	return strings.Replace(ip, ".", "-", -1)
 }
 
@@ -273,7 +273,7 @@ func (kc *kube2consul) handlePodCreate(obj interface{}) {
 	if p, ok := obj.(*kapi.Pod); ok {
 		// If the pod ip is not yet available, do not attempt to create.
 		if p.Status.PodIP != "" {
-			podIP := sanitizeIP(p.Status.PodIP)
+			podIP := sanitizeString(p.Status.PodIP)
 			volumes := p.Spec.Volumes
 			volumesJson, _ := json.Marshal(volumes)
 			volumesStr := fmt.Sprintf("%v", volumesJson)
@@ -286,10 +286,10 @@ func (kc *kube2consul) handlePodUpdate(oldObj interface{}, newObj interface{}) {
 	if np, ok := newObj.(*kapi.Pod); ok {
 
 		if p, ok := oldObj.(*kapi.Pod); ok {
-			oldPodIP := sanitizeIP(p.Status.PodIP)
+			oldPodIP := sanitizeString(p.Status.PodIP)
 			kc.deleteKV(podSubdomain, oldPodIP)
 
-			newPodIP := sanitizeIP(np.Status.PodIP)
+			newPodIP := sanitizeString(np.Status.PodIP)
 			volumes := p.Spec.Volumes
 			volumesJson, _ := json.Marshal(volumes)
 			volumesStr := fmt.Sprintf("%v", volumesJson)
@@ -300,7 +300,7 @@ func (kc *kube2consul) handlePodUpdate(oldObj interface{}, newObj interface{}) {
 
 func (kc *kube2consul) handlePodRemove(obj interface{}) {
 	if p, ok := obj.(*kapi.Pod); ok {
-		podIP := sanitizeIP(p.Status.PodIP)
+		podIP := sanitizeString(p.Status.PodIP)
 		glog.V(2).Infof("Attempting to remove pod: %v", podIP)
 		kc.deleteKV(podSubdomain, podIP)
 	}
@@ -415,10 +415,7 @@ func main() {
 	var err error
 	setupSignalHandlers()
 	// TODO: Validate input flags.
-	domain := *argDomain
-	if !strings.HasSuffix(domain, ".") {
-		domain = fmt.Sprintf("%s.", domain)
-	}
+	domain := sanitizeString(*argDomain)
 	kc := kube2consul{
 		domain: domain,
 	}
