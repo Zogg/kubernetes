@@ -358,7 +358,6 @@ stop-salt-minion() {
 # Finds the master PD device; returns it in MASTER_PD_DEVICE
 find-master-pd() {
   MASTER_PD_DEVICE=""
-  # TODO(zmerlynn): GKE is still lagging in master-pd creation
   if [[ ! -e /dev/disk/by-id/google-master-pd ]]; then
     return
   fi
@@ -376,7 +375,7 @@ find-master-pd() {
 # already exists.
 mount-master-pd() {
   find-master-pd
-  if [[ -z "${MASTER_PD_DEVICE}" ]]; then
+  if [[ -z "${MASTER_PD_DEVICE:-}" ]]; then
     return
   fi
 
@@ -429,6 +428,7 @@ service_cluster_ip_range: '$(echo "$SERVICE_CLUSTER_IP_RANGE" | sed -e "s/'/''/g
 enable_cluster_monitoring: '$(echo "$ENABLE_CLUSTER_MONITORING" | sed -e "s/'/''/g")'
 enable_cluster_logging: '$(echo "$ENABLE_CLUSTER_LOGGING" | sed -e "s/'/''/g")'
 enable_cluster_ui: '$(echo "$ENABLE_CLUSTER_UI" | sed -e "s/'/''/g")'
+enable_node_problem_detector: '$(echo "$ENABLE_NODE_PROBLEM_DETECTOR" | sed -e "s/'/''/g")'
 enable_l7_loadbalancing: '$(echo "$ENABLE_L7_LOADBALANCING" | sed -e "s/'/''/g")'
 enable_node_logging: '$(echo "$ENABLE_NODE_LOGGING" | sed -e "s/'/''/g")'
 logging_destination: '$(echo "$LOGGING_DESTINATION" | sed -e "s/'/''/g")'
@@ -448,6 +448,7 @@ enable_manifest_url: '$(echo "${ENABLE_MANIFEST_URL:-}" | sed -e "s/'/''/g")'
 manifest_url: '$(echo "${MANIFEST_URL:-}" | sed -e "s/'/''/g")'
 manifest_url_header: '$(echo "${MANIFEST_URL_HEADER:-}" | sed -e "s/'/''/g")'
 num_nodes: $(echo "${NUM_NODES:-}" | sed -e "s/'/''/g")
+master_node: $(echo "${MASTER_NAME:-}" | sed -e "s/'/''/g")
 e2e_storage_test_environment: '$(echo "$E2E_STORAGE_TEST_ENVIRONMENT" | sed -e "s/'/''/g")'
 kube_uid: '$(echo "${KUBE_UID}" | sed -e "s/'/''/g")'
 EOF
@@ -568,7 +569,7 @@ function convert-bytes-gce-kube() {
 #  - Optionally uses KUBECFG_CERT and KUBECFG_KEY to store a copy of the client
 #    cert credentials.
 #
-# After the first boot and on upgrade, these files exists on the master-pd
+# After the first boot and on upgrade, these files exist on the master-pd
 # and should never be touched again (except perhaps an additional service
 # account, see NB below.)
 function create-salt-master-auth() {
@@ -798,12 +799,58 @@ EOF
     CLOUD_CONFIG=/etc/gce.conf
   fi
 
-  if [[ -n ${CLOUD_CONFIG:-} ]]; then
-  cat <<EOF >>/etc/salt/minion.d/grains.conf
+  if [[ -n "${CLOUD_CONFIG:-}" ]]; then
+    cat <<EOF >>/etc/salt/minion.d/grains.conf
   cloud_config: ${CLOUD_CONFIG}
 EOF
   else
     rm -f /etc/gce.conf
+  fi
+
+  if [[ -n "${GCP_AUTHN_URL:-}" ]]; then
+    cat <<EOF >>/etc/salt/minion.d/grains.conf
+  webhook_authentication_config: /etc/gcp_authn.config
+EOF
+    cat <<EOF >/etc/gcp_authn.config
+clusters:
+  - name: gcp-authentication-server
+    cluster:
+      server: ${GCP_AUTHN_URL}
+users:
+  - name: kube-apiserver
+    user:
+      auth-provider:
+        name: gcp
+current-context: webhook
+contexts:
+- context:
+    cluster: gcp-authentication-server
+    user: kube-apiserver
+  name: webhook
+EOF
+  fi
+
+  if [[ -n "${GCP_AUTHZ_URL:-}" ]]; then
+    cat <<EOF >>/etc/salt/minion.d/grains.conf
+  webhook_authorization_config: /etc/gcp_authz.config
+EOF
+    cat <<EOF >/etc/gcp_authz.config
+clusters:
+  - name: gcp-authorization-server
+    cluster:
+      server: ${GCP_AUTHZ_URL}
+users:
+  - name: kube-apiserver
+    user:
+      auth-provider:
+        name: gcp
+current-context: webhook
+contexts:
+- context:
+    cluster: gcp-authorization-server
+    user: kube-apiserver
+  name: webhook
+EOF
   fi
 
   # If the kubelet on the master is enabled, give it the same CIDR range

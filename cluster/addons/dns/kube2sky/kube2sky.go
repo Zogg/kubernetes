@@ -22,6 +22,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"os"
 	"os/signal"
@@ -153,28 +154,27 @@ func getSkyMsg(ip string, port int) *skymsg.Service {
 }
 
 func (ks *kube2sky) generateRecordsForHeadlessService(subdomain string, e *kapi.Endpoints, svc *kapi.Service) error {
-	glog.V(4).Infof("Endpoints Annotations: %v", e.Annotations)
+	// TODO: remove this after v1.4 is released and the old annotations are EOL
+	podHostnames, err := getPodHostnamesFromAnnotation(e.Annotations)
+	if err != nil {
+		return err
+	}
 	for idx := range e.Subsets {
 		for subIdx := range e.Subsets[idx].Addresses {
-			endpointIP := e.Subsets[idx].Addresses[subIdx].IP
+			address := &e.Subsets[idx].Addresses[subIdx]
+			endpointIP := address.IP
 			b, err := json.Marshal(getSkyMsg(endpointIP, 0))
 			if err != nil {
 				return err
 			}
 			recordValue := string(b)
-			recordLabel := bridge.GetHash(recordValue)
-			if serializedPodHostnames := e.Annotations[endpoints.PodHostnamesAnnotation]; len(serializedPodHostnames) > 0 {
-				podHostnames := map[string]endpoints.HostRecord{}
-				err := json.Unmarshal([]byte(serializedPodHostnames), &podHostnames)
-				if err != nil {
-					return err
-				}
-				if hostRecord, exists := podHostnames[string(endpointIP)]; exists {
-					if validation.IsDNS1123Label(hostRecord.HostName) {
-						recordLabel = hostRecord.HostName
-					}
-				}
+			var recordLabel string
+			if hostLabel, exists := getHostname(address, podHostnames); exists {
+				recordLabel = hostLabel
+			} else {
+				recordLabel = getHash(recordValue)
 			}
+
 			recordKey := bridge.BuildDNSNameString(subdomain, recordLabel)
 
 			glog.V(2).Infof("Setting DNS record: %v -> %q\n", recordKey, recordValue)
@@ -193,8 +193,31 @@ func (ks *kube2sky) generateRecordsForHeadlessService(subdomain string, e *kapi.
 			}
 		}
 	}
-
 	return nil
+}
+
+func getHostname(address *kapi.EndpointAddress, podHostnames map[string]endpoints.HostRecord) (string, bool) {
+	if len(address.Hostname) > 0 {
+		return address.Hostname, true
+	}
+	if hostRecord, exists := podHostnames[address.IP]; exists && len(validation.IsDNS1123Label(hostRecord.HostName)) == 0 {
+		return hostRecord.HostName, true
+	}
+	return "", false
+}
+
+func getPodHostnamesFromAnnotation(annotations map[string]string) (map[string]endpoints.HostRecord, error) {
+	hostnames := map[string]endpoints.HostRecord{}
+
+	if annotations != nil {
+		if serializedHostnames, exists := annotations[endpoints.PodHostnamesAnnotation]; exists && len(serializedHostnames) > 0 {
+			err := json.Unmarshal([]byte(serializedHostnames), &hostnames)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return hostnames, nil
 }
 
 func (ks *kube2sky) getServiceFromEndpoints(e *kapi.Endpoints) (*kapi.Service, error) {
@@ -437,6 +460,12 @@ func watchPods(kubeClient *kclient.Client, ks *kube2sky) kcache.Store {
 
 	go eController.Run(wait.NeverStop)
 	return eStore
+}
+
+func getHash(text string) string {
+	h := fnv.New32a()
+	h.Write([]byte(text))
+	return fmt.Sprintf("%x", h.Sum32())
 }
 
 // setupSignalHandlers runs a goroutine that waits on SIGINT or SIGTERM and logs it

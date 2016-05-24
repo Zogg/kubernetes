@@ -77,7 +77,7 @@ func TestRecycler(t *testing.T) {
 	if err != nil {
 		t.Errorf("Can't find the plugin by name")
 	}
-	recycler, err := plug.NewRecycler(spec)
+	recycler, err := plug.NewRecycler("pv-name", spec)
 	if err != nil {
 		t.Errorf("Failed to make a new Recyler: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestProvisioner(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to make a new Provisioner: %v", err)
 	}
-	pv, err := creater.NewPersistentVolumeTemplate()
+	pv, err := creater.Provision()
 	if err != nil {
 		t.Errorf("Unexpected error creating volume: %v", err)
 	}

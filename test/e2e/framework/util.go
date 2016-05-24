@@ -18,7 +18,6 @@ package framework
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -879,6 +878,109 @@ func deleteNS(c *client.Client, namespace string, timeout time.Duration) error {
 	return nil
 }
 
+func ContainerInitInvariant(older, newer runtime.Object) error {
+	oldPod := older.(*api.Pod)
+	newPod := newer.(*api.Pod)
+	if len(oldPod.Spec.InitContainers) == 0 {
+		return nil
+	}
+	if len(oldPod.Spec.InitContainers) != len(newPod.Spec.InitContainers) {
+		return fmt.Errorf("init container list changed")
+	}
+	if oldPod.UID != newPod.UID {
+		return fmt.Errorf("two different pods exist in the condition: %s vs %s", oldPod.UID, newPod.UID)
+	}
+	if err := initContainersInvariants(oldPod); err != nil {
+		return err
+	}
+	if err := initContainersInvariants(newPod); err != nil {
+		return err
+	}
+	oldInit, _, _ := podInitialized(oldPod)
+	newInit, _, _ := podInitialized(newPod)
+	if oldInit && !newInit {
+		// TODO: we may in the future enable resetting PodInitialized = false if the kubelet needs to restart it
+		// from scratch
+		return fmt.Errorf("pod cannot be initialized and then regress to not being initialized")
+	}
+	return nil
+}
+
+func podInitialized(pod *api.Pod) (ok bool, failed bool, err error) {
+	allInit := true
+	initFailed := false
+	for _, s := range pod.Status.InitContainerStatuses {
+		switch {
+		case initFailed && s.State.Waiting == nil:
+			return allInit, initFailed, fmt.Errorf("container %s is after a failed container but isn't waiting", s.Name)
+		case allInit && s.State.Waiting == nil:
+			return allInit, initFailed, fmt.Errorf("container %s is after an initializing container but isn't waiting", s.Name)
+		case s.State.Terminated == nil:
+			allInit = false
+		case s.State.Terminated.ExitCode != 0:
+			allInit = false
+			initFailed = true
+		case !s.Ready:
+			return allInit, initFailed, fmt.Errorf("container %s initialized but isn't marked as ready", s.Name)
+		}
+	}
+	return allInit, initFailed, nil
+}
+
+func initContainersInvariants(pod *api.Pod) error {
+	allInit, initFailed, err := podInitialized(pod)
+	if err != nil {
+		return err
+	}
+	if !allInit || initFailed {
+		for _, s := range pod.Status.ContainerStatuses {
+			if s.State.Waiting == nil || s.RestartCount != 0 {
+				return fmt.Errorf("container %s is not waiting but initialization not complete", s.Name)
+			}
+			if s.State.Waiting.Reason != "PodInitializing" {
+				return fmt.Errorf("container %s should have reason PodInitializing: %s", s.Name, s.State.Waiting.Reason)
+			}
+		}
+	}
+	_, c := api.GetPodCondition(&pod.Status, api.PodInitialized)
+	if c == nil {
+		return fmt.Errorf("pod does not have initialized condition")
+	}
+	if c.LastTransitionTime.IsZero() {
+		return fmt.Errorf("PodInitialized condition should always have a transition time")
+	}
+	switch {
+	case c.Status == api.ConditionUnknown:
+		return fmt.Errorf("PodInitialized condition should never be Unknown")
+	case c.Status == api.ConditionTrue && (initFailed || !allInit):
+		return fmt.Errorf("PodInitialized condition was True but all not all containers initialized")
+	case c.Status == api.ConditionFalse && (!initFailed && allInit):
+		return fmt.Errorf("PodInitialized condition was False but all containers initialized")
+	}
+	return nil
+}
+
+type InvariantFunc func(older, newer runtime.Object) error
+
+func CheckInvariants(events []watch.Event, fns ...InvariantFunc) error {
+	errs := sets.NewString()
+	for i := range events {
+		j := i + 1
+		if j >= len(events) {
+			continue
+		}
+		for _, fn := range fns {
+			if err := fn(events[i].Object, events[j].Object); err != nil {
+				errs.Insert(err.Error())
+			}
+		}
+	}
+	if errs.Len() > 0 {
+		return fmt.Errorf("invariants violated:\n* %s", strings.Join(errs.List(), "\n* "))
+	}
+	return nil
+}
+
 // Waits default amount of time (PodStartTimeout) for the specified pod to become running.
 // Returns an error if timeout occurs first, or pod goes in to failed state.
 func WaitForPodRunningInNamespace(c *client.Client, podName string, namespace string) error {
@@ -1510,6 +1612,11 @@ type kubectlBuilder struct {
 func NewKubectlCommand(args ...string) *kubectlBuilder {
 	b := new(kubectlBuilder)
 	b.cmd = KubectlCmd(args...)
+	return b
+}
+
+func (b *kubectlBuilder) WithEnv(env []string) *kubectlBuilder {
+	b.cmd.Env = env
 	return b
 }
 
@@ -2218,7 +2325,11 @@ func DumpNodeDebugInfo(c *client.Client, nodeNames []string) {
 			continue
 		}
 		for _, p := range podList.Items {
-			Logf("%v started at %v (%d container statuses recorded)", p.Name, p.Status.StartTime, len(p.Status.ContainerStatuses))
+			Logf("%v started at %v (%d+%d container statuses recorded)", p.Name, p.Status.StartTime, len(p.Status.InitContainerStatuses), len(p.Status.ContainerStatuses))
+			for _, c := range p.Status.InitContainerStatuses {
+				Logf("\tInit container %v ready: %v, restart count %v",
+					c.Name, c.Ready, c.RestartCount)
+			}
 			for _, c := range p.Status.ContainerStatuses {
 				Logf("\tContainer %v ready: %v, restart count %v",
 					c.Name, c.Ready, c.RestartCount)
@@ -2248,8 +2359,8 @@ func getNodeEvents(c *client.Client, nodeName string) []api.Event {
 	return events.Items
 }
 
-// Convenient wrapper around listing nodes supporting retries.
-func ListSchedulableNodesOrDie(c *client.Client) *api.NodeList {
+// waitListSchedulableNodesOrDie is a wrapper around listing nodes supporting retries.
+func waitListSchedulableNodesOrDie(c *client.Client) *api.NodeList {
 	var nodes *api.NodeList
 	var err error
 	if wait.PollImmediate(Poll, SingleCallTimeout, func() (bool, error) {
@@ -2260,6 +2371,20 @@ func ListSchedulableNodesOrDie(c *client.Client) *api.NodeList {
 	}) != nil {
 		ExpectNoError(err, "Timed out while listing nodes for e2e cluster.")
 	}
+	return nodes
+}
+
+// GetReadySchedulableNodesOrDie addresses the common use case of getting nodes you can do work on.
+// 1) Needs to be schedulable.
+// 2) Needs to be ready.
+// If EITHER 1 or 2 is not true, most tests will want to ignore the node entirely.
+func GetReadySchedulableNodesOrDie(c *client.Client) (nodes *api.NodeList) {
+	nodes = waitListSchedulableNodesOrDie(c)
+	// previous tests may have cause failures of some nodes. Let's skip
+	// 'Not Ready' nodes, just in case (there is no need to fail the test).
+	FilterNodes(nodes, func(node api.Node) bool {
+		return !node.Spec.Unschedulable && IsNodeConditionSetAsExpected(&node, api.NodeReady, true)
+	})
 	return nodes
 }
 
@@ -2813,7 +2938,7 @@ func NodeAddresses(nodelist *api.NodeList, addrType api.NodeAddressType) []strin
 // It returns an error if it can't find an external IP for every node, though it still returns all
 // hosts that it found in that case.
 func NodeSSHHosts(c *client.Client) ([]string, error) {
-	nodelist := ListSchedulableNodesOrDie(c)
+	nodelist := waitListSchedulableNodesOrDie(c)
 
 	// TODO(roberthbailey): Use the "preferred" address for the node, once such a thing is defined (#2462).
 	hosts := NodeAddresses(nodelist, api.NodeExternalIP)
@@ -3592,22 +3717,6 @@ func CheckPodHashLabel(pods *api.PodList) error {
 		return fmt.Errorf("%s", invalidPod)
 	}
 	return nil
-}
-
-// GetReadyNodes retrieves a list of schedulable nodes whose condition
-// is Ready.  An error will be returned if no such nodes are found.
-func GetReadyNodes(f *Framework) (nodes *api.NodeList, err error) {
-	nodes = ListSchedulableNodesOrDie(f.Client)
-	// previous tests may have cause failures of some nodes. Let's skip
-	// 'Not Ready' nodes, just in case (there is no need to fail the test).
-	FilterNodes(nodes, func(node api.Node) bool {
-		return !node.Spec.Unschedulable && IsNodeConditionSetAsExpected(&node, api.NodeReady, true)
-	})
-
-	if len(nodes.Items) == 0 {
-		return nil, errors.New("No Ready nodes found.")
-	}
-	return nodes, nil
 }
 
 // timeout for proxy requests.

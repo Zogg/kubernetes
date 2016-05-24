@@ -95,7 +95,12 @@ source "${KUBE_ROOT}/cluster/aws/${OS_DISTRIBUTION}/util.sh"
 load_distro_utils
 
 # This removes the final character in bash (somehow)
-AWS_REGION=${ZONE%?}
+re='[a-zA-Z]'
+if [[ ${ZONE: -1} =~ $re  ]]; then 
+  AWS_REGION=${ZONE%?}
+else 
+  AWS_REGION=$ZONE
+fi
 
 export AWS_DEFAULT_REGION=${AWS_REGION}
 export AWS_DEFAULT_OUTPUT=text
@@ -158,7 +163,7 @@ function get_igw_id {
 function get_elbs_in_vpc {
   # ELB doesn't seem to be on the same platform as the rest of AWS; doesn't support filtering
   aws elb --output json describe-load-balancers  | \
-    python -c "import json,sys; lst = [str(lb['LoadBalancerName']) for lb in json.load(sys.stdin)['LoadBalancerDescriptions'] if lb['VPCId'] == '$1']; print('\n'.join(lst))"
+    python -c "import json,sys; lst = [str(lb['LoadBalancerName']) for lb in json.load(sys.stdin)['LoadBalancerDescriptions'] if 'VPCId' in lb and lb['VPCId'] == '$1']; print('\n'.join(lst))"
 }
 
 function get_instanceid_from_name {
@@ -358,6 +363,10 @@ function detect-trusty-image () {
     case "${AWS_REGION}" in
       ap-northeast-1)
         AWS_IMAGE=ami-93876e93
+        ;;
+
+      ap-northeast-2)
+        AWS_IMAGE=ami-62ac620c
         ;;
 
       ap-southeast-1)

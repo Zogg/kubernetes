@@ -199,7 +199,7 @@ func (plugin *FakeVolumePlugin) NewDetacher() (Detacher, error) {
 	return plugin.getFakeVolume(&plugin.Detachers), nil
 }
 
-func (plugin *FakeVolumePlugin) NewRecycler(spec *Spec) (Recycler, error) {
+func (plugin *FakeVolumePlugin) NewRecycler(pvName string, spec *Spec) (Recycler, error) {
 	return &fakeRecycler{"/attributesTransferredFromSpec", MetricsNil{}}, nil
 }
 
@@ -273,7 +273,7 @@ func (fv *FakeVolume) WaitForAttach(spec *Spec, spectimeout time.Duration) (stri
 	return "", nil
 }
 
-func (fv *FakeVolume) GetDeviceMountPath(host VolumeHost, spec *Spec) string {
+func (fv *FakeVolume) GetDeviceMountPath(spec *Spec) string {
 	fv.GetDeviceMountPathCallCount++
 	return ""
 }
@@ -312,7 +312,7 @@ func (fr *fakeRecycler) GetPath() string {
 	return fr.path
 }
 
-func NewFakeRecycler(spec *Spec, host VolumeHost, config VolumeConfig) (Recycler, error) {
+func NewFakeRecycler(pvName string, spec *Spec, host VolumeHost, config VolumeConfig) (Recycler, error) {
 	if spec.PersistentVolume == nil || spec.PersistentVolume.Spec.HostPath == nil {
 		return nil, fmt.Errorf("fakeRecycler only supports spec.PersistentVolume.Spec.HostPath")
 	}
@@ -340,11 +340,12 @@ type FakeProvisioner struct {
 	Host    VolumeHost
 }
 
-func (fc *FakeProvisioner) NewPersistentVolumeTemplate() (*api.PersistentVolume, error) {
+func (fc *FakeProvisioner) Provision() (*api.PersistentVolume, error) {
 	fullpath := fmt.Sprintf("/tmp/hostpath_pv/%s", util.NewUUID())
-	return &api.PersistentVolume{
+
+	pv := &api.PersistentVolume{
 		ObjectMeta: api.ObjectMeta{
-			GenerateName: "pv-fakeplugin-",
+			Name: fc.Options.PVName,
 			Annotations: map[string]string{
 				"kubernetes.io/createdby": "fakeplugin-provisioner",
 			},
@@ -361,11 +362,9 @@ func (fc *FakeProvisioner) NewPersistentVolumeTemplate() (*api.PersistentVolume,
 				},
 			},
 		},
-	}, nil
-}
+	}
 
-func (fc *FakeProvisioner) Provision(pv *api.PersistentVolume) error {
-	return nil
+	return pv, nil
 }
 
 // FindEmptyDirectoryUsageOnTmpfs finds the expected usage of an empty directory existing on
@@ -384,5 +383,5 @@ func FindEmptyDirectoryUsageOnTmpfs() (*resource.Quantity, error) {
 		return nil, fmt.Errorf("failed to parse 'du' output %s due to error %v", out, err)
 	}
 	used.Format = resource.BinarySI
-	return used, nil
+	return &used, nil
 }

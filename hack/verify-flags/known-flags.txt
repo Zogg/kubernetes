@@ -18,10 +18,13 @@ api-token
 api-version
 apiserver-count
 auth-path
+authentication-token-webhook-cache-ttl
 authentication-token-webhook-config-file
 authorization-mode
 authorization-policy-file
 authorization-webhook-config-file
+authorization-webhook-cache-authorized-ttl
+authorization-webhook-cache-unauthorized-ttl
 babysit-daemons
 basic-auth-file
 bench-pods
@@ -54,6 +57,7 @@ cluster-dns
 cluster-domain
 cluster-name
 cluster-tag
+cluster-monitor-period
 concurrent-deployment-syncs
 concurrent-endpoint-syncs
 concurrent-namespace-syncs
@@ -133,9 +137,12 @@ experimental-nvidia-gpus
 experimental-prefix
 external-hostname
 external-ip
+exit-on-lock-contention
 failover-timeout
 failure-domains
 fake-clientset
+federated-api-burst
+federated-api-qps
 file-check-frequency
 file-suffix
 file_content_in_loop
@@ -284,6 +291,7 @@ network-plugin
 network-plugin-dir
 no-headers
 no-suggestions
+node-cidr-mask-size
 node-instance-group
 node-ip
 node-labels
@@ -317,6 +325,7 @@ pod-running
 policy-config-file
 poll-interval
 portal-net
+prepull-images
 private-mountns
 prom-push-gateway
 proto-import
@@ -416,6 +425,7 @@ system-reserved
 target-port
 tcp-services
 terminated-pod-gc-threshold
+test-timeout
 tls-cert-file
 tls-private-key-file
 to-version

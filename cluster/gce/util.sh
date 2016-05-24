@@ -23,25 +23,39 @@ source "${KUBE_ROOT}/cluster/gce/${KUBE_CONFIG_FILE-"config-default.sh"}"
 source "${KUBE_ROOT}/cluster/common.sh"
 source "${KUBE_ROOT}/cluster/lib/util.sh"
 
-if [[ "${OS_DISTRIBUTION}" == "debian" || "${OS_DISTRIBUTION}" == "coreos" || "${OS_DISTRIBUTION}" == "trusty" ]]; then
+if [[ "${OS_DISTRIBUTION}" == "debian" || "${OS_DISTRIBUTION}" == "coreos" || "${OS_DISTRIBUTION}" == "trusty" || "${OS_DISTRIBUTION}" == "gci" ]]; then
   source "${KUBE_ROOT}/cluster/gce/${OS_DISTRIBUTION}/helper.sh"
-elif [[ "${OS_DISTRIBUTION}" == "gci" ]]; then
-  # TODO(andyzheng0831): Switch to use the GCI specific code.
-  source "${KUBE_ROOT}/cluster/gce/trusty/helper.sh"
-  MASTER_IMAGE_PROJECT="google-containers"
-  # If choosing "gci" disto, at least the cluster master needs to run on GCI image.
-  # If the user does not set a GCI image for master, we run both master and nodes
-  # using the latest GCI dev image.
-  if [[ "${MASTER_IMAGE}" != gci* ]]; then
-    gci_images=( $(gcloud compute images list --project google-containers \
-      --regexp='gci-dev.*' --format='value(name)') )
-    MASTER_IMAGE="${gci_images[0]}"
-    NODE_IMAGE="${MASTER_IMAGE}"
-    NODE_IMAGE_PROJECT="${MASTER_IMAGE_PROJECT}"
-  fi
 else
   echo "Cannot operate on cluster using os distro: ${OS_DISTRIBUTION}" >&2
   exit 1
+fi
+
+if [[ "${OS_DISTRIBUTION}" == "gci" ]]; then
+  # If the master or node image is not set, we use the latest GCI dev image.
+  # Otherwise, we respect whatever set by the user.
+  gci_images=( $(gcloud compute images list --project google-containers \
+      --regexp='gci-dev.*' --format='value(name)') )
+  if [[ -z "${KUBE_GCE_MASTER_IMAGE:-}" ]]; then
+    MASTER_IMAGE="${gci_images[0]}"
+    MASTER_IMAGE_PROJECT="google-containers"
+  fi
+  if [[ -z "${KUBE_GCE_NODE_IMAGE:-}" ]]; then
+    NODE_IMAGE="${gci_images[0]}"
+    NODE_IMAGE_PROJECT="google-containers"
+  fi
+
+fi
+
+# Verfiy cluster autoscaler configuration.
+if [[ "${ENABLE_NODE_AUTOSCALER}" == "true" ]]; then
+  if [ -z $AUTOSCALER_MIN_NODES ]; then
+    echo "AUTOSCALER_MIN_NODES not set."
+    exit 1
+  fi
+  if [ -z $AUTOSCALER_MAX_NODES ]; then
+    echo "AUTOSCALER_MAX_NODES not set."
+    exit 1
+  fi
 fi
 
 NODE_INSTANCE_PREFIX="${INSTANCE_PREFIX}-minion"
@@ -624,6 +638,18 @@ function create-network() {
   fi
 }
 
+# Assumes:
+#   NUM_NODES
+# Sets:
+#   MASTER_ROOT_DISK_SIZE
+function get-master-root-disk-size() {
+  if [[ "${NUM_NODES}" -le "1000" ]]; then
+    export MASTER_ROOT_DISK_SIZE="10"
+  else
+    export MASTER_ROOT_DISK_SIZE="50"
+  fi
+}
+
 function create-master() {
   echo "Starting master and configuring firewalls"
   gcloud compute firewall-rules create "${MASTER_NAME}-https" \
@@ -666,6 +692,9 @@ function create-master() {
     --project "${PROJECT}" --region "${REGION}" -q --format='value(address)')
 
   create-certs "${MASTER_RESERVED_IP}"
+
+  # Sets MASTER_ROOT_DISK_SIZE that is used by create-master-instance
+  get-master-root-disk-size
 
   create-master-instance "${MASTER_RESERVED_IP}" &
 }

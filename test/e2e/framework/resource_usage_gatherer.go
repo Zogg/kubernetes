@@ -205,6 +205,9 @@ func getKubemarkMasterComponentsResourceUsage() ResourceUsagePerContainer {
 }
 
 func (g *containerResourceGatherer) getKubeSystemContainersResourceUsage(c *client.Client) {
+	if len(g.workers) == 0 {
+		return
+	}
 	delayPeriod := resourceDataGatheringPeriod / time.Duration(len(g.workers))
 	delay := time.Duration(0)
 	for i := range g.workers {
@@ -278,7 +281,9 @@ func NewResourceUsageGatherer(c *client.Client, options ResourceGathererOptions)
 					finished:             false,
 					inKubemark:           false,
 				})
-				break
+				if options.masterOnly {
+					break
+				}
 			}
 		}
 	}

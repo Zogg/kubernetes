@@ -113,7 +113,7 @@ function get_latest_trusty_image() {
     # Retry the gsutil command a couple times to mitigate the effect of
     # transient server errors.
     for n in $(seq 3); do
-      image="$(gsutil cat "gs://${image_project}/image-indices/latest-test-image-${image_index}")" && break || sleep 1
+      image="$(gsutil cat "gs://${image_project}/image-indices/latest-base-image-${image_index}")" && break || sleep 1
     done
     if [[ -z "${image}" ]]; then
       echo "Failed to find Trusty image for ${image_type}"
@@ -342,9 +342,10 @@ if [[ -n "${JENKINS_PUBLISHED_SKEW_VERSION:-}" ]]; then
     if [[ "${JENKINS_USE_SKEW_TESTS:-}" != "true" ]]; then
         # Back out into the old tests now that we've downloaded & maybe upgraded.
         cd ../kubernetes_old
-    elif [[ "${JENKINS_USE_SKEW_KUBECTL:-}" == "true" ]]; then
-        # Append kubectl-path of skewed kubectl to test args
-        GINKGO_TEST_ARGS="${GINKGO_TEST_ARGS:-} --kubectl-path=$(pwd)/../kubernetes/cluster/kubectl.sh"
+        if [[ "${JENKINS_USE_SKEW_KUBECTL:-}" == "true" ]]; then
+            # Append kubectl-path of skewed kubectl to test args
+            GINKGO_TEST_ARGS="${GINKGO_TEST_ARGS:-} --kubectl-path=$(pwd)/../kubernetes/cluster/kubectl.sh"
+        fi
     fi
 fi
 

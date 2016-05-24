@@ -341,6 +341,10 @@ func (c *FakeBatch) Jobs(namespace string) client.JobInterface {
 	return &FakeJobsV1{Fake: c, Namespace: namespace}
 }
 
+func (c *FakeBatch) ScheduledJobs(namespace string) client.ScheduledJobInterface {
+	return &FakeScheduledJobs{Fake: c, Namespace: namespace}
+}
+
 // NewSimpleFakeExp returns a client that will respond with the provided objects
 func NewSimpleFakeExp(objects ...runtime.Object) *FakeExperimental {
 	return &FakeExperimental{Fake: NewSimpleFake(objects...)}
@@ -378,8 +382,20 @@ func (c *FakeExperimental) ReplicaSets(namespace string) client.ReplicaSetInterf
 	return &FakeReplicaSets{Fake: c, Namespace: namespace}
 }
 
+func (c *FakeExperimental) NetworkPolicies(namespace string) client.NetworkPolicyInterface {
+	return &FakeNetworkPolicies{Fake: c, Namespace: namespace}
+}
+
 type FakeDiscovery struct {
 	*Fake
+}
+
+func (c *FakeDiscovery) ServerPreferredResources() ([]unversioned.GroupVersionResource, error) {
+	return nil, nil
+}
+
+func (c *FakeDiscovery) ServerPreferredNamespacedResources() ([]unversioned.GroupVersionResource, error) {
+	return nil, nil
 }
 
 func (c *FakeDiscovery) ServerResourcesForGroupVersion(groupVersion string) (*unversioned.APIResourceList, error) {

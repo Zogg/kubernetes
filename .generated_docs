@@ -26,6 +26,7 @@ docs/man/man1/kubectl-create-configmap.1
 docs/man/man1/kubectl-create-namespace.1
 docs/man/man1/kubectl-create-secret-docker-registry.1
 docs/man/man1/kubectl-create-secret-generic.1
+docs/man/man1/kubectl-create-secret-tls.1
 docs/man/man1/kubectl-create-secret.1
 docs/man/man1/kubectl-create-serviceaccount.1
 docs/man/man1/kubectl-create.1
@@ -53,8 +54,10 @@ docs/man/man1/kubectl-rollout-undo.1
 docs/man/man1/kubectl-rollout.1
 docs/man/man1/kubectl-run.1
 docs/man/man1/kubectl-scale.1
+docs/man/man1/kubectl-set-image.1
 docs/man/man1/kubectl-set.1
 docs/man/man1/kubectl-stop.1
+docs/man/man1/kubectl-taint.1
 docs/man/man1/kubectl-uncordon.1
 docs/man/man1/kubectl-version.1
 docs/man/man1/kubectl.1
@@ -82,6 +85,7 @@ docs/user-guide/kubectl/kubectl_create_namespace.md
 docs/user-guide/kubectl/kubectl_create_secret.md
 docs/user-guide/kubectl/kubectl_create_secret_docker-registry.md
 docs/user-guide/kubectl/kubectl_create_secret_generic.md
+docs/user-guide/kubectl/kubectl_create_secret_tls.md
 docs/user-guide/kubectl/kubectl_create_serviceaccount.md
 docs/user-guide/kubectl/kubectl_delete.md
 docs/user-guide/kubectl/kubectl_describe.md
@@ -108,6 +112,8 @@ docs/user-guide/kubectl/kubectl_rollout_undo.md
 docs/user-guide/kubectl/kubectl_run.md
 docs/user-guide/kubectl/kubectl_scale.md
 docs/user-guide/kubectl/kubectl_set.md
+docs/user-guide/kubectl/kubectl_set_image.md
+docs/user-guide/kubectl/kubectl_taint.md
 docs/user-guide/kubectl/kubectl_uncordon.md
 docs/user-guide/kubectl/kubectl_version.md
 docs/yaml/kubectl/kubectl.yaml
@@ -142,5 +148,6 @@ docs/yaml/kubectl/kubectl_run.yaml
 docs/yaml/kubectl/kubectl_scale.yaml
 docs/yaml/kubectl/kubectl_set.yaml
 docs/yaml/kubectl/kubectl_stop.yaml
+docs/yaml/kubectl/kubectl_taint.yaml
 docs/yaml/kubectl/kubectl_uncordon.yaml
 docs/yaml/kubectl/kubectl_version.yaml

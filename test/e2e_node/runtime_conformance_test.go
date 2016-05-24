@@ -32,8 +32,9 @@ import (
 )
 
 const (
-	retryTimeout = time.Minute * 5
-	pollInterval = time.Second * 5
+	consistentCheckTimeout = time.Second * 10
+	retryTimeout           = time.Minute * 5
+	pollInterval           = time.Second * 5
 )
 
 type testStatus struct {
@@ -65,7 +66,7 @@ var _ = Describe("Container runtime Conformance Test", func() {
 		Context("when start a container that exits successfully", func() {
 			It("it should run with the expected status [Conformance]", func() {
 				testContainer := api.Container{
-					Image: "gcr.io/google_containers/busybox",
+					Image: ImageRegistry[busyBoxImage],
 					VolumeMounts: []api.VolumeMount{
 						{
 							MountPath: "/restart-count",
@@ -144,7 +145,7 @@ var _ = Describe("Container runtime Conformance Test", func() {
 		Context("when start a container that keeps running", func() {
 			It("it should run with the expected status [Conformance]", func() {
 				testContainer := api.Container{
-					Image:           "gcr.io/google_containers/busybox",
+					Image:           ImageRegistry[busyBoxImage],
 					Command:         []string{"sh", "-c", "while true; do echo hello; sleep 1; done"},
 					ImagePullPolicy: api.PullIfNotPresent,
 				}
@@ -176,7 +177,7 @@ var _ = Describe("Container runtime Conformance Test", func() {
 					Consistently(func() api.PodPhase {
 						status, phase, err = runningContainer.GetStatus()
 						return phase
-					}, retryTimeout, pollInterval).Should(Equal(testStatus.Phase))
+					}, consistentCheckTimeout, pollInterval).Should(Equal(testStatus.Phase))
 					Expect(err).NotTo(HaveOccurred())
 
 					By("it should get the expected 'RestartCount'")
@@ -202,7 +203,7 @@ var _ = Describe("Container runtime Conformance Test", func() {
 		Context("when start a container that exits failure", func() {
 			It("it should run with the expected status [Conformance]", func() {
 				testContainer := api.Container{
-					Image:           "gcr.io/google_containers/busybox",
+					Image:           ImageRegistry[busyBoxImage],
 					Command:         []string{"false"},
 					ImagePullPolicy: api.PullIfNotPresent,
 				}
@@ -282,7 +283,7 @@ var _ = Describe("Container runtime Conformance Test", func() {
 					} else {
 						return phase
 					}
-				}, retryTimeout, pollInterval).Should(Equal(testStatus.Phase))
+				}, consistentCheckTimeout, pollInterval).Should(Equal(testStatus.Phase))
 				Expect(err).NotTo(HaveOccurred())
 
 				By("it should get the expected 'RestartCount'")
