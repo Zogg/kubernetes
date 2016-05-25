@@ -15,7 +15,7 @@ import (
 	"k8s.io/kubernetes/pkg/storage/generic"
 	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
 
-	//"github.com/golang/glog"
+	"github.com/golang/glog"
 	"golang.org/x/net/context"
 )
 
@@ -41,8 +41,7 @@ func GetAllTestStorageFactories() []TestServerFactory {
 		//t.Errorf("unexpected error: %v", err)
 	}
 	return []TestServerFactory{
-		&EtcdTestServerFactory{
-		},
+		&EtcdTestServerFactory{},
 		consulFactory,
 	}
 }
@@ -100,8 +99,12 @@ type ConsulTestServerFactory struct {
 }
 
 func(f *ConsulTestServerFactory) NewTestClientServer(t *testing.T) TestServer {
+	if isUp(&consul.ConsulConfig{}, t) {
+		glog.Infof("Consul agent already running... attempting to shut it down")
+		exec.Command( f.filePath, "leave" ).Run()
+	}
 	cmd := exec.Command( f.filePath, "agent", "-dev" )
-	//glog.Infof("About to launch: %s agent -dev", f.filePath)
+	fmt.PrintLn("About to launch: ", f.filePath, " agent -dev")
 	err := cmd.Start()
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -111,7 +114,7 @@ func(f *ConsulTestServerFactory) NewTestClientServer(t *testing.T) TestServer {
 		cmdServer:  cmd,
 		cmdLeave:   exec.Command( f.filePath, "leave" ),
 	}
-	err = server.waitUntilUp()
+	err = server.waitUntilUp(t)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -128,22 +131,29 @@ type ConsulTestServer struct {
 	config      consul.ConsulConfig
 }
 
+func isUp(config *consul.ConsulConfig, t *testing.T) bool {
+	rawStorage, err := config.NewRawStorage()
+	if err != nil {
+		t.Logf("Failed to get raw storage (retrying): %v", err)
+		glog.Infof("Failed to get raw storage (retrying): %v", err)
+		return false
+	}
+	var rawObj generic.RawObject
+	err = rawStorage.Get(context.TODO(), "until/consul/started", &rawObj )
+	if err == nil || storage.IsNotFound(err) {
+		return true
+	}
+	return false
+}
 
 // waitForEtcd wait until consul is propagated correctly
-func (s *ConsulTestServer) waitUntilUp() error {
+func (s *ConsulTestServer) waitUntilUp(t *testing.T) error {
 	for start := time.Now(); time.Since(start) < 25*time.Second; time.Sleep(100 * time.Millisecond) {
-		rawStorage, err := s.config.NewRawStorage()
-		if err != nil {
-			//glog.Infof("Failed to get raw storage (retrying): %v", err)
-			continue
-		}
-		var rawObj generic.RawObject
-		err = rawStorage.Get(context.TODO(), "/wait/until/consul/started", &rawObj )
-		if err == nil || storage.IsNotFound(err) {
+		if isUp(&s.config, t) {
 			return nil
 		}
-		//glog.Infof("Failed to get raw storage (retrying): %v", err)
 	}
+	t.Errorf("timeout on waiting for consul cluster")
 	return fmt.Errorf("timeout on waiting for consul cluster")
 }
 
@@ -154,6 +164,7 @@ func(s *ConsulTestServer) NewRawStorage() generic.InterfaceRaw {
 }
 
 func(s *ConsulTestServer) Terminate(t *testing.T) {
+	fmt.Println("Shutting down consul agent")
 	err := s.cmdLeave.Run()
 	if err != nil {
 		// well damn... what do we do now?

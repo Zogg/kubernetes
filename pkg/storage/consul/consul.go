@@ -2,12 +2,13 @@ package consul
 
 import (
 	//"errors"
-	//"fmt"
+	"fmt"
 	//"path"
 	//"reflect"
 	"strconv"
 	"strings"
 	"time"
+	"net/url"
   
     //"k8s.io/kubernetes/pkg/api"
 	//"k8s.io/kubernetes/pkg/api/meta"
@@ -95,7 +96,7 @@ func (s *ConsulKvStorage) Create(ctx context.Context, key string, data []byte, o
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
+	key = s.transformKeyName( key )
 	// TODO: metrics and stuff
 	// startTime := time.Now()
 	kv := &consulapi.KVPair{
@@ -129,7 +130,7 @@ func (s *ConsulKvStorage) Set(ctx context.Context, key string, raw *generic.RawO
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
+	key = s.transformKeyName( key )
 
 	kv := consulapi.KVPair{
 		Key:         key,
@@ -152,7 +153,7 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, rawOut *generi
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
+	key = s.transformKeyName( key )
 	
 	// kv declared outside of the spin-loop so that we can decode subsequent successful Gets
 	// in the event that another client deletes our key before we do.. this value is possibly
@@ -214,7 +215,7 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, rawOut *generi
 }
 
 func (s *ConsulKvStorage) Watch(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
-	key = strings.TrimLeft( key, "/" )
+	key = s.transformKeyName( key )
 	version, err := strconv.ParseUint( resourceVersion, 10, 64 )
 	if err != nil {
 		return nil, err
@@ -223,7 +224,7 @@ func (s *ConsulKvStorage) Watch(ctx context.Context, key string, resourceVersion
 }
 
 func (s *ConsulKvStorage) WatchList(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
-	key = strings.TrimLeft( key, "/" )
+	key = s.transformKeyName( key )
 	version, err := strconv.ParseUint( resourceVersion, 10, 64 )
 	if err != nil {
 		return nil, err
@@ -235,7 +236,7 @@ func (s *ConsulKvStorage) Get(ctx context.Context, key string, raw *generic.RawO
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
+	key = s.transformKeyName( key )
 	kv, _, err := s.ConsulKv.Get(key, nil)
 	if err != nil {
 		return toStorageErr(err, key, 0)
@@ -258,7 +259,7 @@ func (s *ConsulKvStorage) GetToList(ctx context.Context, key string, rawList *[]
 		glog.Errorf("Context is nil")
 	}
 	// ensure that our path is terminated with a / to make it a directory
-	key = strings.Trim( key, "/" )
+	key = s.transformKeyName( key )
 	
 	// create a filter that will omit deep finds
 	myLastIndex := strings.LastIndex(key, "/")
@@ -273,7 +274,7 @@ func (s *ConsulKvStorage) List(ctx context.Context, key string, resourceVersion 
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
+	key = s.transformKeyName( key )
 	fnKeyFilter := func(keyIn string) bool {
 		return keyIn != key
 	}
@@ -311,7 +312,19 @@ func (s *ConsulKvStorage) listInternal(fnName string, key string, keyFilter keyF
 	return maxIndex, nil
 }
 
-func toStorageErr(err error, key string, n int) error {
-	// TODO: Translate errors into values consistent with k8s
+func (s *ConsulKvStorage) transformKeyName(keyIn string) string {
+	return url.QueryEscape( strings.Trim( keyIn, "/" ) )
+}
+
+
+func toStorageErr(err error, key string, rv int64) error {
+	switch err := err.(type) {
+		case *url.Error:
+			_ = err
+			fmt.Println("Translating err Unreachable from consul to storage")
+			storeErr := storage.NewUnreachableError(key, rv)
+			storeErr.AdditionalErrorMsg = "Consul agent not responding"
+			return storeErr
+	}
 	return err
 }

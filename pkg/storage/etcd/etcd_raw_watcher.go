@@ -68,7 +68,10 @@ func newEtcdWatcherRaw(list bool, quorum bool, include includeFunc) *etcdWatcher
 		ctx:          nil,
 		cancel:       nil,
 	}
-	w.emit = func(e generic.RawEvent) { w.outgoing <- e }
+	w.emit = func(e generic.RawEvent) {
+		//glog.Infof( "raw-watcher: sending {Type:%s, Previous:%s, Current:%s}", e.Type, string(e.Previous.Data), string(e.Current.Data))
+		 w.outgoing <- e
+	}
 	go w.translate()
 	return w
 }
