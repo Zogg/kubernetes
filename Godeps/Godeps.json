@@ -1159,13 +1159,18 @@
 			"Rev": "8096f47503459bcc74d1f4c487b7e6e42e5746b5"
 		},
 		{
-			"ImportPath": "github.com/MustWin/consul/api",
-			"Comment": "v0.7.0",
-			"Rev": "4d94ff1a66909b21612534a221d27a44a1dc58d3"
+			"ImportPath": "github.com/hashicorp/consul/api",
+			"Comment": "v0.6.4-339-g14c2415",
+			"Rev": "14c24154e8db989a8d17fd5e15f1b6ce7885f29e"
 		},
 		{
 			"ImportPath": "github.com/hashicorp/go-cleanhttp",
 			"Rev": "ad28ea4487f05916463e2423a55166280e8254b5"
+		},
+		{
+			"ImportPath": "github.com/hashicorp/serf/coordinate",
+			"Comment": "v0.7.0-58-gdefb069",
+			"Rev": "defb069b1bad9f7cdebc647810cb6ae398a1b617"
 		},
 		{
 			"ImportPath": "github.com/hashicorp/go-msgpack/codec",
