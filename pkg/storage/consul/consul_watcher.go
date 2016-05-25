@@ -2,7 +2,7 @@ package consul
 
 import (
 	//"fmt"
-	//"net/http"
+	"net/http"
 	//"errors"
 	//"strings"
 	"sort"
@@ -10,6 +10,7 @@ import (
 	//"sync/atomic"
 	//"time"
   
+	"k8s.io/kubernetes/pkg/api/unversioned"
 	//"k8s.io/kubernetes/pkg/conversion"
 	//"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage/generic"
@@ -254,7 +255,12 @@ func(w *consulWatch) emitEvent( action watch.EventType, kvCur *consulapi.KVPair,
 func(w *consulWatch) emitError( key string, err error ) {
 	w.emit( generic.RawEvent{
 			Type:           watch.Error,
-			ErrorStatus:    err,
+			ErrorStatus:    &unversioned.Status{
+				Status:  unversioned.StatusFailure,
+				Message: err.Error(),
+				Code:    http.StatusGone, // Gone
+				Reason:  unversioned.StatusReasonExpired,
+			},
 	} )
 }
 
