@@ -209,6 +209,8 @@ func (f *Framework) AfterEach() {
 	// Print events if the test failed.
 	if CurrentGinkgoTestDescription().Failed && TestContext.DumpLogsOnFailure {
 		DumpAllNamespaceInfo(f.Client, f.Namespace.Name)
+		By(fmt.Sprintf("Dumping a list of prepulled images on each node"))
+		LogPodsWithLabels(f.Client, api.NamespaceSystem, ImagePullerLabels)
 	}
 
 	summaries := make([]TestDataSummary, 0)
@@ -474,6 +476,12 @@ func kubectlExecWithRetry(namespace string, podName, containerName string, args 
 			if strings.Contains(strings.ToLower(string(stdErrBytes)), "i/o timeout") {
 				// Retry on "i/o timeout" errors
 				Logf("Warning: kubectl exec encountered i/o timeout.\nerr=%v\nstdout=%v\nstderr=%v)", err, string(stdOutBytes), string(stdErrBytes))
+				continue
+			}
+			if strings.Contains(strings.ToLower(string(stdErrBytes)), "container not found") {
+				// Retry on "container not found" errors
+				Logf("Warning: kubectl exec encountered container not found.\nerr=%v\nstdout=%v\nstderr=%v)", err, string(stdOutBytes), string(stdErrBytes))
+				time.Sleep(2 * time.Second)
 				continue
 			}
 		}

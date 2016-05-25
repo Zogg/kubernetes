@@ -347,7 +347,7 @@ function find-release-tars() {
 
   # This tarball is used by GCI, Ubuntu Trusty, and CoreOS.
   KUBE_MANIFESTS_TAR=
-  if [[ "${KUBE_OS_DISTRIBUTION:-}" == "trusty" || "${KUBE_OS_DISTRIBUTION:-}" == "gci" || "${KUBE_OS_DISTRIBUTION:-}" == "coreos" ]]; then
+  if [[ "${OS_DISTRIBUTION:-}" == "trusty" || "${OS_DISTRIBUTION:-}" == "gci" || "${OS_DISTRIBUTION:-}" == "coreos" ]]; then
     KUBE_MANIFESTS_TAR="${KUBE_ROOT}/server/kubernetes-manifests.tar.gz"
     if [[ ! -f "${KUBE_MANIFESTS_TAR}" ]]; then
       KUBE_MANIFESTS_TAR="${KUBE_ROOT}/_output/release-tars/kubernetes-manifests.tar.gz"
@@ -505,6 +505,7 @@ CA_CERT: $(yaml-quote ${CA_CERT_BASE64:-})
 KUBELET_CERT: $(yaml-quote ${KUBELET_CERT_BASE64:-})
 KUBELET_KEY: $(yaml-quote ${KUBELET_KEY_BASE64:-})
 NETWORK_PROVIDER: $(yaml-quote ${NETWORK_PROVIDER:-})
+PREPULL_E2E_IMAGES: $(yaml-quote ${PREPULL_E2E_IMAGES:-})
 HAIRPIN_MODE: $(yaml-quote ${HAIRPIN_MODE:-})
 OPENCONTRAIL_TAG: $(yaml-quote ${OPENCONTRAIL_TAG:-})
 OPENCONTRAIL_KUBERNETES_TAG: $(yaml-quote ${OPENCONTRAIL_KUBERNETES_TAG:-})
