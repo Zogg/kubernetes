@@ -104,7 +104,6 @@ func(f *ConsulTestServerFactory) NewTestClientServer(t *testing.T) TestServer {
 		exec.Command( f.filePath, "leave" ).Run()
 	}
 	cmd := exec.Command( f.filePath, "agent", "-dev" )
-	fmt.PrintLn("About to launch: ", f.filePath, " agent -dev")
 	err := cmd.Start()
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
