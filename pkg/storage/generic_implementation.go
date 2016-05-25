@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 	
 	"k8s.io/kubernetes/pkg/api"
@@ -376,8 +375,7 @@ func (h *genericWrapper) addToCache(index uint64, obj runtime.Object) {
 
 type genericWatcher struct {
 	resultChan  chan watch.Event
-	stopChan    chan struct{}
-	stopped     uint32
+	stopped     bool
 	raw         generic.InterfaceRawWatch
 	storage     *genericWrapper
 	filter      FilterFunc
@@ -387,7 +385,6 @@ type genericWatcher struct {
 func newGenericWatcher(raw generic.InterfaceRawWatch, storage *genericWrapper, filter FilterFunc, name string) *genericWatcher {
 	ret := &genericWatcher{
 		resultChan: make(chan watch.Event, 100),
-		stopChan:   make(chan struct{}),
 		raw:        raw,
 		storage:    storage,
 		filter:     filter,
@@ -400,72 +397,68 @@ func newGenericWatcher(raw generic.InterfaceRawWatch, storage *genericWrapper, f
 func(w *genericWatcher) run() {
 	defer w.cleanup()
 	internalResultChan := w.raw.ResultChan()
-	var evIn generic.RawEvent
-	for {
-		select {
-			case <-w.stopChan:
-				return
+	for evIn := range internalResultChan {
+		var evOut watch.Event
+		evOut.Type = evIn.Type
+		if evOut.Type == watch.Error {
+			evOut.Object = evIn.ErrorStatus.(runtime.Object)
+			w.resultChan<-evOut
+			return
+		} else {
+			var curFilt, prevFilt bool
+			if len(evIn.Previous.Data) > 0 {
+				obj, err := w.decodeObject(&evIn.Previous)
+				if err != nil {
+					glog.Infof("Watcher-cooked %s: error ignore", w.name)
+					continue
+				}
+				prevFilt = w.filter(obj)
+				if prevFilt {
+					evOut.Object = obj
+				}
+			}
+			if len(evIn.Current.Data) > 0 {
+				obj, err := w.decodeObject(&evIn.Current)
+				if err != nil {
+					glog.Infof("Watcher-cooked %s: error ignore", w.name)
+					continue
+				}
+				curFilt = w.filter(obj)
+				if curFilt {
+					evOut.Object = obj
+				}
+			}
+			switch {
+				case prevFilt && !curFilt:
+					evOut.Type = watch.Deleted
 				
-			case evIn = <-internalResultChan:
-				var evOut watch.Event
-				evOut.Type = evIn.Type
-				if evOut.Type == watch.Error {
-					evOut.Object = evIn.ErrorStatus.(runtime.Object)
-					w.resultChan<-evOut
-					return
-				} else {
-					var curFilt, prevFilt bool
-					if len(evIn.Current.Data) > 0 {
-						obj, err := w.decodeObject(&evIn.Current)
-						if err != nil {
-							glog.Infof("Watcher-cooked %s: error ignore", w.name)
-							continue
-						}
-						curFilt = w.filter(obj)
-						if curFilt {
-							evOut.Object = obj
-						}
-					}
-					if len(evIn.Previous.Data) > 0 {
-						obj, err := w.decodeObject(&evIn.Previous)
-						if err != nil {
-							glog.Infof("Watcher-cooked %s: error ignore", w.name)
-							continue
-						}
-						prevFilt = w.filter(obj)
-						if prevFilt {
-							evOut.Object = obj
-						}
-					}
-					switch {
-						case prevFilt && !curFilt:
-							evOut.Type = watch.Deleted
-						
-						case !prevFilt && curFilt:
-							evOut.Type = watch.Added
-						
-						case !prevFilt && !curFilt:
-							continue
-							
-						default:
-							evOut.Type = watch.Modified
-					}
-				}
-				if evOut.Type != "" { 
-					select {
-						case <-w.stopChan:
-							return
+				case !prevFilt && curFilt:
+					evOut.Type = watch.Added
+				
+				case !prevFilt && !curFilt:
+					continue
 					
-						case w.resultChan<-evOut:
+				default:
+					evOut.Type = watch.Modified
+			}
+		}
+		if evOut.Type != "" { 
+			select {
+				case <-time.After(30 * time.Second):
+					glog.Errorf("Cooked watcher left with dangling output while watching %s", w.name)
+					return
+			
+				case w.resultChan<-evOut:
+					if evOut.Type == watch.Error {
+						return
 					}
-				}
+			}
 		}
 	}
 }
 
 func(w *genericWatcher) cleanup() {
 	close(w.resultChan)
-	w.raw.Stop()
 }
 
 func (w *genericWatcher) decodeObject(raw *generic.RawObject) (runtime.Object, error) {
@@ -506,9 +499,8 @@ func (w *genericWatcher) decodeObject(raw *generic.RawObject) (runtime.Object, e
 }
 
 func(w *genericWatcher) Stop() {
-	if atomic.SwapUint32( &w.stopped, 1 ) == 0 {
-		close(w.stopChan)
-	}
+	w.stopped = true
+	w.raw.Stop()
 }
 
 func(w *genericWatcher) ResultChan() <-chan watch.Event {
