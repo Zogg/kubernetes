@@ -22,7 +22,7 @@ import (
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
 	consulapi "github.com/hashicorp/consul/api"
-	"k8s.io/kubernetes/pkg/storage/generic
+	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 const (

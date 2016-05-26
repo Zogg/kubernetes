@@ -340,7 +340,7 @@ func decodeObj(codec runtime.Codec, versioner storage.Versioner, data []byte, re
 		return nil, err
 	}
 	// ensure resource version is set on the object we load from etcd
-	if err := versioner.UpdateObject(obj, uint64(rev)); err != nil {
+	if err := versioner.UpdateObject(obj, nil, uint64(rev)); err != nil {
 		return nil, fmt.Errorf("failure to version api object (%d) %#v: %v", rev, obj, err)
 	}
 	return obj, nil

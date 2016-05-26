@@ -18,15 +18,6 @@ type etcdLowLevel struct {
 	quorum          bool
 }
 
-func (c *EtcdStorageConfig) NewRawStorage() (generic.InterfaceRaw, error) {
-	etcdClient, err := c.Config.newEtcdClient()
-	if err != nil {
-		return nil, err
-	}
-	return NewEtcdRawStorage(etcdClient, c.Config.Quorum), nil
-}
-
-
 func NewEtcdRawStorage(client etcd.Client, quorum bool) generic.InterfaceRaw {
 	return &etcdLowLevel{
 		etcdMembersAPI: etcd.NewMembersAPI(client),

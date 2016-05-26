@@ -254,7 +254,7 @@ func (e *Store) Update(ctx api.Context, obj runtime.Object) (runtime.Object, boo
 		return nil, false, err
 	}
 	doUnconditionalUpdate := resourceVersion == 0 && e.UpdateStrategy.AllowUnconditionalUpdate()
-	// TODO: expose TTL
+	// TODO: expose TTL, apply below twice
 	creating := false
 	out := e.NewFunc()
 	meta, err := api.ObjectMetaFor(obj)
@@ -272,7 +272,7 @@ func (e *Store) Update(ctx api.Context, obj runtime.Object) (runtime.Object, boo
 		// function, we are resetting resourceVersion to the initial value here.
 		//
 		// TODO: In fact, we should probably return a DeepCopy of obj in all places.
-		err := e.Storage.Versioner().UpdateObject(obj, resourceVersion)
+		err := e.Storage.Versioner().UpdateObject(obj, nil, resourceVersion)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -299,7 +299,7 @@ func (e *Store) Update(ctx api.Context, obj runtime.Object) (runtime.Object, boo
 		creating = false
 		if doUnconditionalUpdate {
 			// Update the object's resource version to match the latest storage object's resource version.
-			err = e.Storage.Versioner().UpdateObject(obj, res.ResourceVersion)
+			err = e.Storage.Versioner().UpdateObject(obj, nil, res.ResourceVersion)
 			if err != nil {
 				return nil, nil, err
 			}

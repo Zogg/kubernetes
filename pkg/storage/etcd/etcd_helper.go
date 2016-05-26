@@ -17,109 +17,41 @@ limitations under the License.
 package etcd
 
 import (
+	"reflect"
+	/*
 	"errors"
 	"fmt"
 	"path"
-	"reflect"
+
 	"strings"
 	"net"
 	"net/http"
 	"time"
 
+
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/conversion"
+	*/
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
-	"k8s.io/kubernetes/pkg/storage/etcd/metrics"
+	//"k8s.io/kubernetes/pkg/storage/etcd/metrics"
 	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
-	"k8s.io/kubernetes/pkg/util"
+	/*"k8s.io/kubernetes/pkg/util"
 	utilcache "k8s.io/kubernetes/pkg/util/cache"
-	"k8s.io/kubernetes/pkg/watch"
+	"k8s.io/kubernetes/pkg/watch"*/
 
 	etcd "github.com/coreos/etcd/client"
-	"github.com/coreos/etcd/pkg/transport"
+	/*"github.com/coreos/etcd/pkg/transport"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
+	*/
 	
 	//"k8s.io/kubernetes/pkg/storage/consul"
 )
 
 // storage.Config object for etcd.
-type EtcdStorageConfig struct {
-	Config EtcdConfig
-	Codec  runtime.Codec
-}
-
-// implements storage.Config
-func (c *EtcdStorageConfig) GetType() string {
-	return "etcd"
-}
-
-// implements storage.Config
-func (c *EtcdStorageConfig) NewStorage() (storage.Interface, error) {
-	etcdClient, err := c.Config.newEtcdClient()
-	if err != nil {
-		return nil, err
-	}
-	func NewEtcdStorage(client etcd.Client, codec runtime.Codec, prefix string, quorum bool, cacheSize int) storage.Interface {
-	return NewEtcdStorage(etcdClient, c.Codec, c.Config.Prefix, c.Config.Quorum), nil
-}
-
-// Configuration object for constructing etcd.Config
-type EtcdConfig struct {
-	Prefix     string
-	ServerList []string
-	KeyFile    string
-	CertFile   string
-	CAFile     string
-	Quorum     bool
-}
-
-func (c *EtcdConfig) newEtcdClient() (etcd.Client, error) {
-	t, err := c.newHttpTransport()
-	if err != nil {
-		return nil, err
-	}
-
-	cli, err := etcd.New(etcd.Config{
-		Endpoints: c.ServerList,
-		Transport: t,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return cli, nil
-}
-
-func (c *EtcdConfig) newHttpTransport() (*http.Transport, error) {
-	info := transport.TLSInfo{
-		CertFile: c.CertFile,
-		KeyFile:  c.KeyFile,
-		CAFile:   c.CAFile,
-	}
-	cfg, err := info.ClientConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	// Copied from etcd.DefaultTransport declaration.
-	// TODO: Determine if transport needs optimization
-	tr := utilnet.SetTransportDefaults(&http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		Dial: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).Dial,
-		TLSHandshakeTimeout: 10 * time.Second,
-		MaxIdleConnsPerHost: 500,
-		TLSClientConfig:     cfg,
-	})
-
-	return tr, nil
-}
 
 // Creates a new storage interface from the client
 // TODO: deprecate in favor of storage.Config abstraction over time
@@ -148,7 +80,7 @@ func NewEtcdStorage(client etcd.Client, codec runtime.Codec, prefix string, quor
 	
 	return storage.NewGenericWrapper(NewEtcdRawStorage(client, quorum), codec, prefix)
 }
-
+/*
 // etcdHelper is the reference implementation of storage.Interface.
 type etcdHelper struct {
 	etcdMembersAPI etcd.MembersAPI
@@ -660,6 +592,8 @@ func (h *etcdHelper) prefixEtcdKey(key string) string {
 	return path.Join(h.pathPrefix, key)
 }
 
+*/
+
 // etcdCache defines interface used for caching objects stored in etcd. Objects are keyed by
 // their Node.ModifiedIndex, which is unique across all types.
 // All implementations must be thread-safe.
@@ -671,7 +605,7 @@ type etcdCache interface {
 func getTypeName(obj interface{}) string {
 	return reflect.TypeOf(obj).String()
 }
-
+/*
 func (h *etcdHelper) getFromCache(index uint64, filter storage.FilterFunc) (runtime.Object, bool) {
 	startTime := time.Now()
 	defer func() {
@@ -712,6 +646,8 @@ func (h *etcdHelper) addToCache(index uint64, obj runtime.Object) {
 		metrics.ObserveNewEntry()
 	}
 }
+
+*/
 
 func toStorageErr(err error, key string, rv int64) error {
 	if err == nil {

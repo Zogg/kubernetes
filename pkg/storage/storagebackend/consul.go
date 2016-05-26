@@ -22,7 +22,7 @@ import (
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/consul"
 	consulapi "github.com/hashicorp/consul/api"
-	"k8s.io/kubernetes/pkg/storage/generic
+	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 func newConsulStorage(c Config) (storage.Interface, error) {
@@ -45,7 +45,9 @@ func newConsulRawStorage(c Config) (generic.InterfaceRaw, error) {
 	}
 	raw := &consul.ConsulKvStorage {
 		ConsulKv:   *client.KV(),
-		Config:     c,
+		// TODO: make this configurable for multiple servers
+		ServerList:     []string{c.getConsulApiConfig().Address},
+		WaitTimeout: consul.DefaultWaitTimeout,
 	}
 	return raw, nil
 }

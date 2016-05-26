@@ -13,7 +13,6 @@ import (
 	//"k8s.io/kubernetes/pkg/api/meta"
 	//"k8s.io/kubernetes/pkg/conversion"
 	"k8s.io/kubernetes/pkg/storage"
-	"k8s.io/kubernetes/pkg/storage/storagebackend"
 	"k8s.io/kubernetes/pkg/storage/generic"
 	// TODO: relocate APIObjectVersioner to storage.APIObjectVersioner_uint64
 	//"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
@@ -29,11 +28,12 @@ const DefaultWaitTimeout = time.Duration( 10 * time.Second )
 
 type ConsulKvStorage struct {
 	ConsulKv    consulapi.KV
-	Config      *storagebackend.Config
+	ServerList  []string
+	WaitTimeout time.Duration
 }
 
 func (s *ConsulKvStorage) Backends(ctx context.Context) []string {
-	return s.Config.ServerList
+	return s.ServerList
 }
 
 func (s *ConsulKvStorage) Create(ctx context.Context, key string, data []byte, out *generic.RawObject, ttl uint64) error {

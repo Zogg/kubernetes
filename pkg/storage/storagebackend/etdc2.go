@@ -24,6 +24,7 @@ import (
 	etcd2client "github.com/coreos/etcd/client"
 	"github.com/coreos/etcd/pkg/transport"
 	"k8s.io/kubernetes/pkg/storage"
+	"k8s.io/kubernetes/pkg/storage/generic"
 	"k8s.io/kubernetes/pkg/storage/etcd"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
 )
@@ -38,6 +39,18 @@ func newETCD2Storage(c Config) (storage.Interface, error) {
 		return nil, err
 	}
 	return etcd.NewEtcdStorage(client, c.Codec, c.Prefix, c.Quorum, c.DeserializationCacheSize), nil
+}
+
+func newETCD2RawStorage(c Config) (generic.InterfaceRaw, error) {
+	tr, err := newTransportForETCD2(c.CertFile, c.KeyFile, c.CAFile)
+	if err != nil {
+		return nil, err
+	}
+	client, err := newETCD2Client(tr, c.ServerList)
+	if err != nil {
+		return nil, err
+	}
+	return etcd.NewEtcdRawStorage(client, c.Quorum)
 }
 
 func newETCD2Client(tr *http.Transport, serverList []string) (etcd2client.Client, error) {

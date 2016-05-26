@@ -23,9 +23,26 @@ import (
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/etcd3"
+	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 func newETCD3Storage(c Config) (storage.Interface, error) {
+	endpoints := c.ServerList
+	for i, s := range endpoints {
+		endpoints[i] = strings.TrimLeft(s, "http://")
+	}
+	cfg := clientv3.Config{
+		Endpoints: endpoints,
+	}
+	client, err := clientv3.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	etcd3.StartCompactor(context.Background(), client)
+	return etcd3.New(client, c.Codec, c.Prefix), nil
+}
+
+func newETCD3RawStorage(c Config) (generic.InterfaceRaw, error) {
 	endpoints := c.ServerList
 	for i, s := range endpoints {
 		endpoints[i] = strings.TrimLeft(s, "http://")

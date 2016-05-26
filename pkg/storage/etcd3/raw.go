@@ -36,9 +36,10 @@ import (
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"time"
+	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
-type store struct {
+type rawStore struct {
 	client     *clientv3.Client
 	codec      runtime.Codec
 	versioner  storage.Versioner
@@ -59,11 +60,11 @@ type objState struct {
 }
 
 // New returns an etcd3 implementation of storage.Interface.
-func New(c *clientv3.Client, codec runtime.Codec, prefix string) storage.Interface {
-	return newStore(c, codec, prefix)
+func NewRaw(c *clientv3.Client, codec runtime.Codec, prefix string) storage.Interface {
+	return newRawStore(c, codec, prefix)
 }
 
-func newStore(c *clientv3.Client, codec runtime.Codec, prefix string) *store {
+func newRawStore(c *clientv3.Client, codec runtime.Codec, prefix string) *store {
 	versioner := etcd.APIObjectVersioner{}
 	return &store{
 		client:     c,
@@ -75,7 +76,7 @@ func newStore(c *clientv3.Client, codec runtime.Codec, prefix string) *store {
 }
 
 // Backends implements storage.Interface.Backends.
-func (s *store) Backends(ctx context.Context) []string {
+func (s *rawStore) Backends(ctx context.Context) []string {
 	resp, err := s.client.MemberList(ctx)
 	if err != nil {
 		glog.Errorf("Error obtaining etcd members list: %q", err)
@@ -89,17 +90,17 @@ func (s *store) Backends(ctx context.Context) []string {
 }
 
 // Codec implements storage.Interface.Codec.
-func (s *store) Codec() runtime.Codec {
+func (s *rawStore) Codec() runtime.Codec {
 	return s.codec
 }
 
 // Versioner implements storage.Interface.Versioner.
-func (s *store) Versioner() storage.Versioner {
+func (s *rawStore) Versioner() storage.Versioner {
 	return s.versioner
 }
 
 // Get implements storage.Interface.Get.
-func (s *store) Get(ctx context.Context, key string, out runtime.Object, ignoreNotFound bool) error {
+func (s *rawStore) Get(ctx context.Context, key string, out runtime.Object, ignoreNotFound bool) error {
 	key = keyWithPrefix(s.pathPrefix, key)
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
@@ -116,17 +117,8 @@ func (s *store) Get(ctx context.Context, key string, out runtime.Object, ignoreN
 	return decode(s.codec, s.versioner, kv.Value, out, kv.ModRevision)
 }
 
-// Create implements storage.Interface.Create.
-func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object, ttl uint64) error {
-	if version, err := s.versioner.ObjectResourceVersion(obj); err == nil && version != 0 {
-		return errors.New("resourceVersion should not be set on objects to be created")
-	}
-	data, err := runtime.Encode(s.codec, obj)
-	if err != nil {
-		return err
-	}
-	key = keyWithPrefix(s.pathPrefix, key)
-
+// Create implements generic.InterfaceRaw.Create.
+func(s *rawStore) Create(ctx context.Context, key string, data []byte, raw *generic.RawObject, ttl uint64) error {
 	opts, err := s.ttlOpts(ctx, int64(ttl))
 	if err != nil {
 		return err
@@ -144,27 +136,33 @@ func (s *store) Create(ctx context.Context, key string, obj, out runtime.Object,
 		return storage.NewKeyExistsError(key, 0)
 	}
 
-	if out != nil {
+	if raw != nil {
 		putResp := txnResp.Responses[0].GetResponsePut()
-		return decode(s.codec, s.versioner, data, out, putResp.Header.Revision)
+		putResp.MarshalTo(raw.Data)
+		raw.Version = putResp.Header.Revision
+
+		// TODO: Handle TTL
+		// raw.TTL = ...
+		return err
 	}
 	return nil
 }
 
 // Delete implements storage.Interface.Delete.
-func (s *store) Delete(ctx context.Context, key string, out runtime.Object, precondtions *storage.Preconditions) error {
-	v, err := conversion.EnforcePtr(out)
+//func (s *rawStore) Delete(ctx context.Context, key string, out runtime.Object, precondtions *storage.Preconditions) error {
+func(s *rawStore) Delete(ctx context.Context, key string, raw *generic.RawObject, preconditions generic.RawFilterFunc) error {
+	/*v, err := conversion.EnforcePtr(out)
 	if err != nil {
 		panic("unable to convert output object to pointer")
-	}
+	}*/
 	key = keyWithPrefix(s.pathPrefix, key)
-	if precondtions == nil {
-		return s.unconditionalDelete(ctx, key, out)
+	if preconditions == nil {
+		return s.unconditionalDelete(ctx, key, raw)
 	}
-	return s.conditionalDelete(ctx, key, out, v, precondtions)
+	return s.conditionalDelete(ctx, key, out, v, preconditions)
 }
 
-func (s *store) unconditionalDelete(ctx context.Context, key string, out runtime.Object) error {
+func (s *rawStore) unconditionalDelete(ctx context.Context, key string, raw *generic.RawObject) error {
 	// We need to do get and delete in single transaction in order to
 	// know the value and revision before deleting it.
 	txnResp, err := s.client.KV.Txn(ctx).If().Then(
@@ -180,10 +178,12 @@ func (s *store) unconditionalDelete(ctx context.Context, key string, out runtime
 	}
 
 	kv := getResp.Kvs[0]
-	return decode(s.codec, s.versioner, kv.Value, out, kv.ModRevision)
+	raw.Version = kv.ModRevision
+	_, err = kv.MarshalTo(raw.Data)
+	return err
 }
 
-func (s *store) conditionalDelete(ctx context.Context, key string, out runtime.Object, v reflect.Value, precondtions *storage.Preconditions) error {
+func (s *rawStore) conditionalDelete(ctx context.Context, key string, out runtime.Object, v reflect.Value, preconditions *generic.RawFilterFunc) error {
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
 		return err
@@ -216,7 +216,7 @@ func (s *store) conditionalDelete(ctx context.Context, key string, out runtime.O
 }
 
 // GuaranteedUpdate implements storage.Interface.GuaranteedUpdate.
-func (s *store) GuaranteedUpdate(ctx context.Context, key string, out runtime.Object, ignoreNotFound bool, precondtions *storage.Preconditions, tryUpdate storage.UpdateFunc) error {
+func (s *rawStore) GuaranteedUpdate(ctx context.Context, key string, out runtime.Object, ignoreNotFound bool, precondtions *storage.Preconditions, tryUpdate storage.UpdateFunc) error {
 	v, err := conversion.EnforcePtr(out)
 	if err != nil {
 		panic("unable to convert output object to pointer")
@@ -275,7 +275,7 @@ func (s *store) GuaranteedUpdate(ctx context.Context, key string, out runtime.Ob
 }
 
 // GetToList implements storage.Interface.GetToList.
-func (s *store) GetToList(ctx context.Context, key string, filter storage.FilterFunc, listObj runtime.Object) error {
+func (s *rawStore) GetToList(ctx context.Context, key string, filter storage.FilterFunc, listObj runtime.Object) error {
 	listPtr, err := meta.GetItemsPtr(listObj)
 	if err != nil {
 		return err
@@ -301,7 +301,7 @@ func (s *store) GetToList(ctx context.Context, key string, filter storage.Filter
 }
 
 // List implements storage.Interface.List.
-func (s *store) List(ctx context.Context, key, resourceVersion string, filter storage.FilterFunc, listObj runtime.Object) error {
+func (s *rawStore) List(ctx context.Context, key, resourceVersion string, filter storage.FilterFunc, listObj runtime.Object) error {
 	listPtr, err := meta.GetItemsPtr(listObj)
 	if err != nil {
 		return err
@@ -333,16 +333,16 @@ func (s *store) List(ctx context.Context, key, resourceVersion string, filter st
 }
 
 // Watch implements storage.Interface.Watch.
-func (s *store) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
+func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
 	return s.watch(ctx, key, resourceVersion, filter, false)
 }
 
 // WatchList implements storage.Interface.WatchList.
-func (s *store) WatchList(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
+func (s *rawStore) WatchList(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
 	return s.watch(ctx, key, resourceVersion, filter, true)
 }
 
-func (s *store) watch(ctx context.Context, key string, rv string, filter storage.FilterFunc, recursive bool) (watch.Interface, error) {
+func (s *rawStore) watch(ctx context.Context, key string, rv string, filter storage.FilterFunc, recursive bool) (watch.Interface, error) {
 	rev, err := storage.ParseWatchResourceVersion(rv)
 	if err != nil {
 		return nil, err
@@ -351,11 +351,11 @@ func (s *store) watch(ctx context.Context, key string, rv string, filter storage
 	return s.watcher.Watch(ctx, key, int64(rev), recursive, filter)
 }
 
-func (s *store) getState(getResp *clientv3.GetResponse, key string, v reflect.Value, ignoreNotFound bool) (*objState, error) {
+func (s *rawStore) getState(getResp *clientv3.GetResponse, key string, v reflect.Value, ignoreNotFound bool) (*objState, error) {
 	state := &objState{
 		obj:  reflect.New(v.Type()).Interface().(runtime.Object),
 		meta: &storage.ResponseMeta{},
-	}x
+	}
 	if len(getResp.Kvs) == 0 {
 		if !ignoreNotFound {
 			return nil, storage.NewKeyNotFoundError(key, 0)
@@ -374,7 +374,7 @@ func (s *store) getState(getResp *clientv3.GetResponse, key string, v reflect.Va
 	return state, nil
 }
 
-func (s *store) updateState(st *objState, userUpdate storage.UpdateFunc) (runtime.Object, uint64, error) {
+func (s *rawStore) updateState(st *objState, userUpdate storage.UpdateFunc) (runtime.Object, uint64, error) {
 	ret, ttlPtr, err := userUpdate(st.obj, *st.meta)
 	if err != nil {
 		return nil, 0, err
@@ -402,7 +402,7 @@ func (s *store) updateState(st *objState, userUpdate storage.UpdateFunc) (runtim
 
 // ttlOpts returns client options based on given ttl.
 // ttl: if ttl is non-zero, it will attach the key to a lease with ttl of roughly the same length
-func (s *store) ttlOpts(ctx context.Context, ttl int64) ([]clientv3.OpOption, error) {
+func (s *rawStore) ttlOpts(ctx context.Context, ttl int64) ([]clientv3.OpOption, error) {
 	if ttl == 0 {
 		return nil, nil
 	}
