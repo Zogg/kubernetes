@@ -1154,7 +1154,7 @@
 		{
 			"ImportPath": "github.com/hashicorp/consul/api",
 			"Comment": "v0.6.4-233-g4d94ff1",
-			"Rev": "4d94ff1a66909b21612534a221d27a44a1dc58d3"
+			"Rev": "359541a67d46a81411070894a2287bef092aeebb"
 		},
 		{
 			"ImportPath": "github.com/hashicorp/go-cleanhttp",
