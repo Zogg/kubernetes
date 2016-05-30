@@ -26,7 +26,7 @@ import (
 
 	"github.com/docker/docker/pkg/jsonmessage"
 	dockerapi "github.com/docker/engine-api/client"
-	docker "github.com/fsouza/go-dockerclient"
+	dockertypes "github.com/docker/engine-api/types"
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/credentialprovider"
@@ -57,23 +57,24 @@ const (
 
 // DockerInterface is an abstract interface for testability.  It abstracts the interface of docker.Client.
 type DockerInterface interface {
-	ListContainers(options docker.ListContainersOptions) ([]docker.APIContainers, error)
-	InspectContainer(id string) (*docker.Container, error)
-	CreateContainer(docker.CreateContainerOptions) (*docker.Container, error)
-	StartContainer(id string, hostConfig *docker.HostConfig) error
-	StopContainer(id string, timeout uint) error
-	RemoveContainer(opts docker.RemoveContainerOptions) error
-	InspectImage(image string) (*docker.Image, error)
-	ListImages(opts docker.ListImagesOptions) ([]docker.APIImages, error)
-	PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) error
-	RemoveImage(image string) error
-	Logs(opts docker.LogsOptions) error
-	Version() (*docker.Env, error)
-	Info() (*docker.Env, error)
-	CreateExec(docker.CreateExecOptions) (*docker.Exec, error)
-	StartExec(string, docker.StartExecOptions) error
-	InspectExec(id string) (*docker.ExecInspect, error)
-	AttachToContainer(opts docker.AttachToContainerOptions) error
+	ListContainers(options dockertypes.ContainerListOptions) ([]dockertypes.Container, error)
+	InspectContainer(id string) (*dockertypes.ContainerJSON, error)
+	CreateContainer(dockertypes.ContainerCreateConfig) (*dockertypes.ContainerCreateResponse, error)
+	StartContainer(id string) error
+	StopContainer(id string, timeout int) error
+	RemoveContainer(id string, opts dockertypes.ContainerRemoveOptions) error
+	InspectImage(image string) (*dockertypes.ImageInspect, error)
+	ListImages(opts dockertypes.ImageListOptions) ([]dockertypes.Image, error)
+	PullImage(image string, auth dockertypes.AuthConfig, opts dockertypes.ImagePullOptions) error
+	RemoveImage(image string, opts dockertypes.ImageRemoveOptions) ([]dockertypes.ImageDelete, error)
+	ImageHistory(id string) ([]dockertypes.ImageHistory, error)
+	Logs(string, dockertypes.ContainerLogsOptions, StreamOptions) error
+	Version() (*dockertypes.Version, error)
+	Info() (*dockertypes.Info, error)
+	CreateExec(string, dockertypes.ExecConfig) (*dockertypes.ContainerExecCreateResponse, error)
+	StartExec(string, dockertypes.ExecStartCheck, StreamOptions) error
+	InspectExec(id string) (*dockertypes.ContainerExecInspect, error)
+	AttachToContainer(string, dockertypes.ContainerAttachOptions, StreamOptions) error
 }
 
 // KubeletContainerName encapsulates a pod name and a Kubernetes container name.
@@ -145,11 +146,9 @@ func filterHTTPError(err error, image string) error {
 
 func (p dockerPuller) Pull(image string, secrets []api.Secret) error {
 	// If no tag was specified, use the default "latest".
-	repoToPull, tag := parsers.ParseImageName(image)
-
-	opts := docker.PullImageOptions{
-		Repository: repoToPull,
-		Tag:        tag,
+	imageID, tag, err := parsers.ParseImageName(image)
+	if err != nil {
+		return err
 	}
 
 	keyring, err := credentialprovider.MakeDockerKeyring(secrets, p.keyring)
@@ -157,11 +156,15 @@ func (p dockerPuller) Pull(image string, secrets []api.Secret) error {
 		return err
 	}
 
-	creds, haveCredentials := keyring.Lookup(repoToPull)
+	opts := dockertypes.ImagePullOptions{
+		Tag: tag,
+	}
+
+	creds, haveCredentials := keyring.Lookup(imageID)
 	if !haveCredentials {
 		glog.V(1).Infof("Pulling image %s without credentials", image)
 
-		err := p.client.PullImage(opts, docker.AuthConfiguration{})
+		err := p.client.PullImage(imageID, dockertypes.AuthConfig{}, opts)
 		if err == nil {
 			// Sometimes PullImage failed with no error returned.
 			exist, ierr := p.IsImagePresent(image)
@@ -188,7 +191,7 @@ func (p dockerPuller) Pull(image string, secrets []api.Secret) error {
 
 	var pullErrs []error
 	for _, currentCreds := range creds {
-		err := p.client.PullImage(opts, credentialprovider.LazyProvide(currentCreds))
+		err = p.client.PullImage(imageID, credentialprovider.LazyProvide(currentCreds), opts)
 		// If there was no error, return success
 		if err == nil {
 			return nil
@@ -212,7 +215,7 @@ func (p dockerPuller) IsImagePresent(image string) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
-	if err == docker.ErrNoSuchImage {
+	if _, ok := err.(imageNotFoundError); ok {
 		return false, nil
 	}
 	return false, err
@@ -346,9 +349,9 @@ func milliCPUToShares(milliCPU int64) int64 {
 // GetKubeletDockerContainers lists all container or just the running ones.
 // Returns a list of docker containers that we manage
 // TODO: Move this function with dockerCache to DockerManager.
-func GetKubeletDockerContainers(client DockerInterface, allContainers bool) ([]*docker.APIContainers, error) {
-	result := []*docker.APIContainers{}
-	containers, err := client.ListContainers(docker.ListContainersOptions{All: allContainers})
+func GetKubeletDockerContainers(client DockerInterface, allContainers bool) ([]*dockertypes.Container, error) {
+	result := []*dockertypes.Container{}
+	containers, err := client.ListContainers(dockertypes.ContainerListOptions{All: allContainers})
 	if err != nil {
 		return nil, err
 	}

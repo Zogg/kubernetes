@@ -79,7 +79,7 @@ func validChangedPersistentVolume() *api.PersistentVolume {
 func TestCreate(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
-	test := registrytest.New(t, storage.Etcd).ClusterScope()
+	test := registrytest.New(t, storage.Store).ClusterScope()
 	pv := validNewPersistentVolume("foo")
 	pv.ObjectMeta = api.ObjectMeta{GenerateName: "foo"}
 	test.TestCreate(
@@ -95,7 +95,7 @@ func TestCreate(t *testing.T) {
 func TestUpdate(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
-	test := registrytest.New(t, storage.Etcd).ClusterScope()
+	test := registrytest.New(t, storage.Store).ClusterScope()
 	test.TestUpdate(
 		// valid
 		validNewPersistentVolume("foo"),
@@ -113,28 +113,28 @@ func TestUpdate(t *testing.T) {
 func TestDelete(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
-	test := registrytest.New(t, storage.Etcd).ClusterScope().ReturnDeletedObject()
+	test := registrytest.New(t, storage.Store).ClusterScope().ReturnDeletedObject()
 	test.TestDelete(validNewPersistentVolume("foo"))
 }
 
 func TestGet(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
-	test := registrytest.New(t, storage.Etcd).ClusterScope()
+	test := registrytest.New(t, storage.Store).ClusterScope()
 	test.TestGet(validNewPersistentVolume("foo"))
 }
 
 func TestList(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
-	test := registrytest.New(t, storage.Etcd).ClusterScope()
+	test := registrytest.New(t, storage.Store).ClusterScope()
 	test.TestList(validNewPersistentVolume("foo"))
 }
 
 func TestWatch(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
-	test := registrytest.New(t, storage.Etcd).ClusterScope()
+	test := registrytest.New(t, storage.Store).ClusterScope()
 	test.TestWatch(
 		validNewPersistentVolume("foo"),
 		// matching labels

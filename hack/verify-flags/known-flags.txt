@@ -65,6 +65,7 @@ conntrack-tcp-timeout-established
 contain-pod-resources
 container-port
 container-runtime
+controller-start-interval
 cors-allowed-origins
 cpu-cfs-quota
 cpu-percent
@@ -81,6 +82,7 @@ deleting-pods-burst
 deleting-pods-qps
 deployment-controller-sync-period
 deployment-label-key
+deserialization-cache-size
 dest-file
 disable-filter
 docker-email
@@ -114,6 +116,9 @@ etcd-servers-overrides
 event-burst
 event-qps
 event-ttl
+eviction-hard
+eviction-soft
+eviction-soft-grace-period
 executor-bindall
 executor-logv
 executor-path
@@ -185,6 +190,7 @@ keep-gogoproto
 km-path
 kube-api-burst
 kube-api-qps
+kube-api-content-type
 kube-master
 kube-master
 kube-master-url
@@ -385,6 +391,7 @@ start-services
 static-pods-config
 stats-port
 stop-services
+storage-backend
 storage-version
 storage-versions
 streaming-connection-idle-timeout

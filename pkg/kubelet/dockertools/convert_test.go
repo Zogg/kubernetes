@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	docker "github.com/fsouza/go-dockerclient"
+	dockertypes "github.com/docker/engine-api/types"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 )
 
@@ -43,7 +43,7 @@ func TestMapState(t *testing.T) {
 }
 
 func TestToRuntimeContainer(t *testing.T) {
-	original := &docker.APIContainers{
+	original := &dockertypes.Container{
 		ID:      "ab2cdf",
 		Image:   "bar_image",
 		Created: 12345,
@@ -69,7 +69,7 @@ func TestToRuntimeContainer(t *testing.T) {
 }
 
 func TestToRuntimeImage(t *testing.T) {
-	original := &docker.APIImages{
+	original := &dockertypes.Image{
 		ID:          "aeeea",
 		RepoTags:    []string{"abc", "def"},
 		VirtualSize: 1234,

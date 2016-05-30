@@ -27,7 +27,8 @@ import (
 	"testing"
 
 	"github.com/docker/docker/pkg/jsonmessage"
-	docker "github.com/fsouza/go-dockerclient"
+	dockertypes "github.com/docker/engine-api/types"
+	dockernat "github.com/docker/go-connections/nat"
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"k8s.io/kubernetes/cmd/kubelet/app/options"
 	"k8s.io/kubernetes/pkg/api"
@@ -62,7 +63,7 @@ func verifyStringArrayEquals(t *testing.T, actual, expected []string) {
 	}
 }
 
-func findPodContainer(dockerContainers []*docker.APIContainers, podFullName string, uid types.UID, containerName string) (*docker.APIContainers, bool, uint64) {
+func findPodContainer(dockerContainers []*dockertypes.Container, podFullName string, uid types.UID, containerName string) (*dockertypes.Container, bool, uint64) {
 	for _, dockerContainer := range dockerContainers {
 		if len(dockerContainer.Names) == 0 {
 			continue
@@ -82,7 +83,7 @@ func findPodContainer(dockerContainers []*docker.APIContainers, podFullName stri
 
 func TestGetContainerID(t *testing.T) {
 	fakeDocker := NewFakeDockerClient()
-	fakeDocker.SetFakeRunningContainers([]*docker.Container{
+	fakeDocker.SetFakeRunningContainers([]*FakeContainer{
 		{
 			ID:   "foobar",
 			Name: "/k8s_foo_qux_ns_1234_42",
@@ -98,7 +99,7 @@ func TestGetContainerID(t *testing.T) {
 		t.Errorf("Expected no error, Got %#v", err)
 	}
 	if len(dockerContainers) != 2 {
-		t.Errorf("Expected %#v, Got %#v", fakeDocker.ContainerList, dockerContainers)
+		t.Errorf("Expected %#v, Got %#v", fakeDocker.RunningContainerList, dockerContainers)
 	}
 	verifyCalls(t, fakeDocker, []string{"list"})
 
@@ -155,28 +156,6 @@ func TestContainerNaming(t *testing.T) {
 	}
 }
 
-func TestVersion(t *testing.T) {
-	fakeDocker := NewFakeDockerClientWithVersion("1.1.3", "1.15")
-	manager := &DockerManager{client: fakeDocker}
-	version, err := manager.Version()
-	if err != nil {
-		t.Errorf("got error while getting docker server version - %s", err)
-	}
-	expectedVersion, _ := docker.NewAPIVersion("1.1.3")
-	if e, a := expectedVersion.String(), version.String(); e != a {
-		t.Errorf("invalid docker server version. expected: %v, got: %v", e, a)
-	}
-
-	version, err = manager.APIVersion()
-	if err != nil {
-		t.Errorf("got error while getting docker server version - %s", err)
-	}
-	expectedVersion, _ = docker.NewAPIVersion("1.15")
-	if e, a := expectedVersion.String(), version.String(); e != a {
-		t.Errorf("invalid docker server version. expected: %v, got: %v", e, a)
-	}
-}
-
 func TestParseImageName(t *testing.T) {
 	tests := []struct {
 		imageName string
@@ -192,8 +171,10 @@ func TestParseImageName(t *testing.T) {
 		{"registry.example.com:5000/foobar:latest", "registry.example.com:5000/foobar", "latest"},
 	}
 	for _, test := range tests {
-		name, tag := parsers.ParseImageName(test.imageName)
-		if name != test.name || tag != test.tag {
+		name, tag, err := parsers.ParseImageName(test.imageName)
+		if err != nil {
+			t.Errorf("ParseImageName(%s) failed: %v", test.imageName, err)
+		} else if name != test.name || tag != test.tag {
 			t.Errorf("Expected name/tag: %s/%s, got %s/%s", test.name, test.tag, name, tag)
 		}
 	}
@@ -372,9 +353,8 @@ func TestDockerKeyringLookupFails(t *testing.T) {
 }
 
 func TestDockerKeyringLookup(t *testing.T) {
-
 	ada := credentialprovider.LazyAuthConfiguration{
-		AuthConfiguration: docker.AuthConfiguration{
+		AuthConfig: dockertypes.AuthConfig{
 			Username: "ada",
 			Password: "smash",
 			Email:    "ada@example.com",
@@ -382,7 +362,7 @@ func TestDockerKeyringLookup(t *testing.T) {
 	}
 
 	grace := credentialprovider.LazyAuthConfiguration{
-		AuthConfiguration: docker.AuthConfiguration{
+		AuthConfig: dockertypes.AuthConfig{
 			Username: "grace",
 			Password: "squash",
 			Email:    "grace@example.com",
@@ -445,7 +425,7 @@ func TestDockerKeyringLookup(t *testing.T) {
 // NOTE: the above covers the case of a more specific match trumping just hostname.
 func TestIssue3797(t *testing.T) {
 	rex := credentialprovider.LazyAuthConfiguration{
-		AuthConfiguration: docker.AuthConfiguration{
+		AuthConfig: dockertypes.AuthConfig{
 			Username: "rex",
 			Password: "tiny arms",
 			Email:    "rex@example.com",
@@ -491,7 +471,7 @@ type imageTrackingDockerClient struct {
 	imageName string
 }
 
-func (f *imageTrackingDockerClient) InspectImage(name string) (image *docker.Image, err error) {
+func (f *imageTrackingDockerClient) InspectImage(name string) (image *dockertypes.ImageInspect, err error) {
 	image, err = f.FakeDockerClient.InspectImage(name)
 	f.imageName = name
 	return
@@ -522,14 +502,14 @@ func (b containersByID) Less(i, j int) bool { return b[i].ID.ID < b[j].ID.ID }
 
 func TestFindContainersByPod(t *testing.T) {
 	tests := []struct {
-		containerList       []docker.APIContainers
-		exitedContainerList []docker.APIContainers
-		all                 bool
-		expectedPods        []*kubecontainer.Pod
+		runningContainerList []dockertypes.Container
+		exitedContainerList  []dockertypes.Container
+		all                  bool
+		expectedPods         []*kubecontainer.Pod
 	}{
 
 		{
-			[]docker.APIContainers{
+			[]dockertypes.Container{
 				{
 					ID:    "foobar",
 					Names: []string{"/k8s_foobar.1234_qux_ns_1234_42"},
@@ -543,7 +523,7 @@ func TestFindContainersByPod(t *testing.T) {
 					Names: []string{"/k8s_baz.1234_qux_ns_1234_42"},
 				},
 			},
-			[]docker.APIContainers{
+			[]dockertypes.Container{
 				{
 					ID:    "barfoo",
 					Names: []string{"/k8s_barfoo.1234_qux_ns_1234_42"},
@@ -590,7 +570,7 @@ func TestFindContainersByPod(t *testing.T) {
 			},
 		},
 		{
-			[]docker.APIContainers{
+			[]dockertypes.Container{
 				{
 					ID:    "foobar",
 					Names: []string{"/k8s_foobar.1234_qux_ns_1234_42"},
@@ -604,7 +584,7 @@ func TestFindContainersByPod(t *testing.T) {
 					Names: []string{"/k8s_baz.1234_qux_ns_1234_42"},
 				},
 			},
-			[]docker.APIContainers{
+			[]dockertypes.Container{
 				{
 					ID:    "barfoo",
 					Names: []string{"/k8s_barfoo.1234_qux_ns_1234_42"},
@@ -670,8 +650,8 @@ func TestFindContainersByPod(t *testing.T) {
 			},
 		},
 		{
-			[]docker.APIContainers{},
-			[]docker.APIContainers{},
+			[]dockertypes.Container{},
+			[]dockertypes.Container{},
 			true,
 			nil,
 		},
@@ -681,7 +661,7 @@ func TestFindContainersByPod(t *testing.T) {
 	// image back-off is set to nil, this test should not pull images
 	containerManager := NewFakeDockerManager(fakeClient, &record.FakeRecorder{}, nil, nil, &cadvisorapi.MachineInfo{}, options.GetDefaultPodInfraContainerImage(), 0, 0, "", containertest.FakeOS{}, np, nil, nil, nil)
 	for i, test := range tests {
-		fakeClient.ContainerList = test.containerList
+		fakeClient.RunningContainerList = test.runningContainerList
 		fakeClient.ExitedContainerList = test.exitedContainerList
 
 		result, _ := containerManager.GetPods(test.all)
@@ -749,37 +729,37 @@ func TestMakePortsAndBindings(t *testing.T) {
 	}
 
 	// Construct expected bindings
-	expectPortBindings := map[string][]docker.PortBinding{
+	expectPortBindings := map[string][]dockernat.PortBinding{
 		"80/tcp": {
-			docker.PortBinding{
+			dockernat.PortBinding{
 				HostPort: "8080",
 				HostIP:   "127.0.0.1",
 			},
 		},
 		"443/tcp": {
-			docker.PortBinding{
+			dockernat.PortBinding{
 				HostPort: "443",
 				HostIP:   "",
 			},
-			docker.PortBinding{
+			dockernat.PortBinding{
 				HostPort: "446",
 				HostIP:   "",
 			},
 		},
 		"443/udp": {
-			docker.PortBinding{
+			dockernat.PortBinding{
 				HostPort: "446",
 				HostIP:   "",
 			},
 		},
 		"444/udp": {
-			docker.PortBinding{
+			dockernat.PortBinding{
 				HostPort: "444",
 				HostIP:   "",
 			},
 		},
 		"445/tcp": {
-			docker.PortBinding{
+			dockernat.PortBinding{
 				HostPort: "445",
 				HostIP:   "",
 			},

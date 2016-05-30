@@ -512,7 +512,11 @@ type FlexVolumeSource struct {
 	// Must be a filesystem type supported by the host operating system.
 	// Ex. "ext4", "xfs", "ntfs". The default filesystem depends on FlexVolume script.
 	FSType string `json:"fsType,omitempty"`
-	// Optional: SecretRef is reference to the authentication secret for User, default is empty.
+	// Optional: SecretRef is reference to the secret object containing
+	// sensitive information to pass to the plugin scripts. This may be
+	// empty if no secret object is specified. If the secret object
+	// contains more than one secret, all secrets are passed to the plugin
+	// scripts.
 	SecretRef *LocalObjectReference `json:"secretRef,omitempty"`
 	// Optional: Defaults to false (read/write). ReadOnly here will force
 	// the ReadOnly setting in VolumeMounts.
@@ -1624,6 +1628,8 @@ type EndpointSubset struct {
 // EndpointAddress is a tuple that describes single IP address.
 type EndpointAddress struct {
 	// The IP of this endpoint.
+	// IPv6 is also accepted but not fully supported on all platforms. Also, certain
+	// kubernetes components, like kube-proxy, are not IPv6 ready.
 	// TODO: This should allow hostname or IP, see #4447.
 	IP string
 
@@ -2212,6 +2218,8 @@ const (
 	ResourcePersistentVolumeClaims ResourceName = "persistentvolumeclaims"
 	// ResourceServicesNodePorts, number
 	ResourceServicesNodePorts ResourceName = "services.nodeports"
+	// ResourceServicesLoadBalancers, number
+	ResourceServicesLoadBalancers ResourceName = "services.loadbalancers"
 	// CPU request, in cores. (500m = .5 cores)
 	ResourceRequestsCPU ResourceName = "requests.cpu"
 	// Memory request, in bytes. (500Gi = 500GiB = 500 * 1024 * 1024 * 1024)
@@ -2403,7 +2411,7 @@ type ConfigMapList struct {
 	unversioned.ListMeta `json:"metadata,omitempty"`
 
 	// Items is the list of ConfigMaps.
-	Items []ConfigMap `json:"items,omitempty"`
+	Items []ConfigMap `json:"items"`
 }
 
 // These constants are for remote command execution and port forwarding and are

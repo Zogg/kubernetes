@@ -68,7 +68,6 @@ import (
 	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/blang/semver"
-	"github.com/davecgh/go-spew/spew"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/net/websocket"
 
@@ -243,6 +242,9 @@ type RCConfig struct {
 	// Maximum allowable container failures. If exceeded, RunRC returns an error.
 	// Defaults to replicas*0.1 if unspecified.
 	MaxContainerFailures *int
+
+	// If set to false starting RC will print progress, otherwise only errors will be printed.
+	Silent bool
 }
 
 type DeploymentConfig struct {
@@ -329,6 +331,7 @@ var providersWithMasterSSH = []string{"gce", "gke", "kubemark", "aws"}
 type podCondition func(pod *api.Pod) (bool, error)
 
 // podReady returns whether pod has a condition of Ready with a status of true.
+// TODO: should be replaced with api.IsPodReady
 func podReady(pod *api.Pod) bool {
 	for _, cond := range pod.Status.Conditions {
 		if cond.Type == api.PodReady && cond.Status == api.ConditionTrue {
@@ -628,25 +631,12 @@ func WaitForNamespacesDeleted(c *client.Client, namespaces []string, timeout tim
 }
 
 func waitForServiceAccountInNamespace(c *client.Client, ns, serviceAccountName string, timeout time.Duration) error {
-	Logf("Waiting up to %v for service account %s to be provisioned in ns %s", timeout, serviceAccountName, ns)
-	for start := time.Now(); time.Since(start) < timeout; time.Sleep(Poll) {
-		sa, err := c.ServiceAccounts(ns).Get(serviceAccountName)
-		if apierrs.IsNotFound(err) {
-			Logf("Get service account %s in ns %s failed, ignoring for %v: %v", serviceAccountName, ns, Poll, err)
-			continue
-		}
-		if err != nil {
-			Logf("Get service account %s in ns %s failed: %v", serviceAccountName, ns, err)
-			return err
-		}
-		if len(sa.Secrets) == 0 {
-			Logf("Service account %s in ns %s had 0 secrets, ignoring for %v: %v", serviceAccountName, ns, Poll, err)
-			continue
-		}
-		Logf("Service account %s in ns %s with secrets found. (%v)", serviceAccountName, ns, time.Since(start))
-		return nil
+	w, err := c.ServiceAccounts(ns).Watch(api.SingleObject(api.ObjectMeta{Name: serviceAccountName}))
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("Service account %s in namespace %s not ready within %v", serviceAccountName, ns, timeout)
+	_, err = watch.Until(timeout, w, client.ServiceAccountHasSecrets)
+	return err
 }
 
 func waitForPodCondition(c *client.Client, ns, podName, desc string, timeout time.Duration, condition podCondition) error {
@@ -902,16 +892,12 @@ func waitForPodRunningInNamespaceSlow(c *client.Client, podName string, namespac
 }
 
 func waitTimeoutForPodRunningInNamespace(c *client.Client, podName string, namespace string, timeout time.Duration) error {
-	return waitForPodCondition(c, namespace, podName, "running", timeout, func(pod *api.Pod) (bool, error) {
-		if pod.Status.Phase == api.PodRunning {
-			Logf("Found pod '%s' on node '%s'", podName, pod.Spec.NodeName)
-			return true, nil
-		}
-		if pod.Status.Phase == api.PodFailed {
-			return true, fmt.Errorf("Giving up; pod went into failed status: \n%s", spew.Sprintf("%#v", pod))
-		}
-		return false, nil
-	})
+	w, err := c.Pods(namespace).Watch(api.SingleObject(api.ObjectMeta{Name: podName}))
+	if err != nil {
+		return err
+	}
+	_, err = watch.Until(timeout, w, client.PodRunning)
+	return err
 }
 
 // Waits default amount of time (podNoLongerRunningTimeout) for the specified pod to stop running.
@@ -921,37 +907,31 @@ func WaitForPodNoLongerRunningInNamespace(c *client.Client, podName string, name
 }
 
 func waitTimeoutForPodNoLongerRunningInNamespace(c *client.Client, podName string, namespace string, timeout time.Duration) error {
-	return waitForPodCondition(c, namespace, podName, "no longer running", timeout, func(pod *api.Pod) (bool, error) {
-		if pod.Status.Phase == api.PodSucceeded || pod.Status.Phase == api.PodFailed {
-			Logf("Found pod '%s' with status '%s' on node '%s'", podName, pod.Status.Phase, pod.Spec.NodeName)
-			return true, nil
-		}
-		return false, nil
-	})
+	w, err := c.Pods(namespace).Watch(api.SingleObject(api.ObjectMeta{Name: podName}))
+	if err != nil {
+		return err
+	}
+	_, err = watch.Until(timeout, w, client.PodCompleted)
+	return err
 }
 
 func waitTimeoutForPodReadyInNamespace(c *client.Client, podName string, namespace string, timeout time.Duration) error {
-	return waitForPodCondition(c, namespace, podName, "running", timeout, func(pod *api.Pod) (bool, error) {
-		if pod.Status.Phase == api.PodRunning {
-			Logf("Found pod '%s' on node '%s'", podName, pod.Spec.NodeName)
-			return true, nil
-		}
-		if pod.Status.Phase == api.PodFailed {
-			return true, fmt.Errorf("Giving up; pod went into failed status: \n%s", spew.Sprintf("%#v", pod))
-		}
-		return podReady(pod), nil
-	})
+	w, err := c.Pods(namespace).Watch(api.SingleObject(api.ObjectMeta{Name: podName}))
+	if err != nil {
+		return err
+	}
+	_, err = watch.Until(timeout, w, client.PodRunningAndReady)
+	return err
 }
 
 // WaitForPodNotPending returns an error if it took too long for the pod to go out of pending state.
 func WaitForPodNotPending(c *client.Client, ns, podName string) error {
-	return waitForPodCondition(c, ns, podName, "!pending", PodStartTimeout, func(pod *api.Pod) (bool, error) {
-		if pod.Status.Phase != api.PodPending {
-			Logf("Saw pod '%s' in namespace '%s' out of pending state (found '%q')", podName, ns, pod.Status.Phase)
-			return true, nil
-		}
-		return false, nil
-	})
+	w, err := c.Pods(ns).Watch(api.SingleObject(api.ObjectMeta{Name: podName}))
+	if err != nil {
+		return err
+	}
+	_, err = watch.Until(PodStartTimeout, w, client.PodNotPending)
+	return err
 }
 
 // waitForPodTerminatedInNamespace returns an error if it took too long for the pod
@@ -1957,6 +1937,70 @@ func (config *RCConfig) applyTo(template *api.PodTemplateSpec) {
 	}
 }
 
+type RCStartupStatus struct {
+	Expected              int
+	Terminating           int
+	Running               int
+	RunningButNotReady    int
+	Waiting               int
+	Pending               int
+	Unknown               int
+	Inactive              int
+	FailedContainers      int
+	Created               []*api.Pod
+	ContainerRestartNodes sets.String
+}
+
+func (s *RCStartupStatus) Print(name string) {
+	Logf("%v Pods: %d out of %d created, %d running, %d pending, %d waiting, %d inactive, %d terminating, %d unknown, %d runningButNotReady ",
+		name, len(s.Created), s.Expected, s.Running, s.Pending, s.Waiting, s.Inactive, s.Terminating, s.Unknown, s.RunningButNotReady)
+}
+
+func ComputeRCStartupStatus(pods []*api.Pod, expected int) RCStartupStatus {
+	startupStatus := RCStartupStatus{
+		Expected:              expected,
+		Created:               make([]*api.Pod, 0, expected),
+		ContainerRestartNodes: sets.NewString(),
+	}
+	for _, p := range pods {
+		if p.DeletionTimestamp != nil {
+			startupStatus.Terminating++
+			continue
+		}
+		startupStatus.Created = append(startupStatus.Created, p)
+		if p.Status.Phase == api.PodRunning {
+			ready := false
+			for _, c := range p.Status.Conditions {
+				if c.Type == api.PodReady && c.Status == api.ConditionTrue {
+					ready = true
+					break
+				}
+			}
+			if ready {
+				// Only count a pod is running when it is also ready.
+				startupStatus.Running++
+			} else {
+				startupStatus.RunningButNotReady++
+			}
+			for _, v := range FailedContainers(p) {
+				startupStatus.FailedContainers = startupStatus.FailedContainers + v.Restarts
+				startupStatus.ContainerRestartNodes.Insert(p.Spec.NodeName)
+			}
+		} else if p.Status.Phase == api.PodPending {
+			if p.Spec.NodeName == "" {
+				startupStatus.Waiting++
+			} else {
+				startupStatus.Pending++
+			}
+		} else if p.Status.Phase == api.PodSucceeded || p.Status.Phase == api.PodFailed {
+			startupStatus.Inactive++
+		} else if p.Status.Phase == api.PodUnknown {
+			startupStatus.Unknown++
+		}
+	}
+	return startupStatus
+}
+
 func (config *RCConfig) start() error {
 	// Don't force tests to fail if they don't care about containers restarting.
 	var maxContainerFailures int
@@ -1985,74 +2029,28 @@ func (config *RCConfig) start() error {
 	for oldRunning != config.Replicas {
 		time.Sleep(interval)
 
-		terminating := 0
-
-		running := 0
-		runningButNotReady := 0
-		waiting := 0
-		pending := 0
-		unknown := 0
-		inactive := 0
-		failedContainers := 0
-		containerRestartNodes := sets.NewString()
-
 		pods := PodStore.List()
-		created := []*api.Pod{}
-		for _, p := range pods {
-			if p.DeletionTimestamp != nil {
-				terminating++
-				continue
-			}
-			created = append(created, p)
-			if p.Status.Phase == api.PodRunning {
-				ready := false
-				for _, c := range p.Status.Conditions {
-					if c.Type == api.PodReady && c.Status == api.ConditionTrue {
-						ready = true
-						break
-					}
-				}
-				if ready {
-					// Only count a pod is running when it is also ready.
-					running++
-				} else {
-					runningButNotReady++
-				}
-				for _, v := range FailedContainers(p) {
-					failedContainers = failedContainers + v.Restarts
-					containerRestartNodes.Insert(p.Spec.NodeName)
-				}
-			} else if p.Status.Phase == api.PodPending {
-				if p.Spec.NodeName == "" {
-					waiting++
-				} else {
-					pending++
-				}
-			} else if p.Status.Phase == api.PodSucceeded || p.Status.Phase == api.PodFailed {
-				inactive++
-			} else if p.Status.Phase == api.PodUnknown {
-				unknown++
-			}
-		}
-		pods = created
+		startupStatus := ComputeRCStartupStatus(pods, config.Replicas)
+
+		pods = startupStatus.Created
 		if config.CreatedPods != nil {
 			*config.CreatedPods = pods
 		}
-
-		Logf("%v Pods: %d out of %d created, %d running, %d pending, %d waiting, %d inactive, %d terminating, %d unknown, %d runningButNotReady ",
-			config.Name, len(pods), config.Replicas, running, pending, waiting, inactive, terminating, unknown, runningButNotReady)
-
-		promPushRunningPending(running, pending)
-
-		if config.PodStatusFile != nil {
-			fmt.Fprintf(config.PodStatusFile, "%d, running, %d, pending, %d, waiting, %d, inactive, %d, unknown, %d, runningButNotReady\n", running, pending, waiting, inactive, unknown, runningButNotReady)
+		if !config.Silent {
+			startupStatus.Print(config.Name)
 		}
 
-		if failedContainers > maxContainerFailures {
-			DumpNodeDebugInfo(config.Client, containerRestartNodes.List())
+		promPushRunningPending(startupStatus.Running, startupStatus.Pending)
+
+		if config.PodStatusFile != nil {
+			fmt.Fprintf(config.PodStatusFile, "%d, running, %d, pending, %d, waiting, %d, inactive, %d, unknown, %d, runningButNotReady\n", startupStatus.Running, startupStatus.Pending, startupStatus.Waiting, startupStatus.Inactive, startupStatus.Unknown, startupStatus.RunningButNotReady)
+		}
+
+		if startupStatus.FailedContainers > maxContainerFailures {
+			DumpNodeDebugInfo(config.Client, startupStatus.ContainerRestartNodes.List())
 			// Get the logs from the failed containers to help diagnose what caused them to fail
 			LogFailedContainers(config.Namespace)
-			return fmt.Errorf("%d containers failed which is more than allowed %d", failedContainers, maxContainerFailures)
+			return fmt.Errorf("%d containers failed which is more than allowed %d", startupStatus.FailedContainers, maxContainerFailures)
 		}
 		if len(pods) < len(oldPods) || len(pods) > config.Replicas {
 			// This failure mode includes:
@@ -2066,11 +2064,11 @@ func (config *RCConfig) start() error {
 			return fmt.Errorf(errorStr)
 		}
 
-		if len(pods) > len(oldPods) || running > oldRunning {
+		if len(pods) > len(oldPods) || startupStatus.Running > oldRunning {
 			lastChange = time.Now()
 		}
 		oldPods = pods
-		oldRunning = running
+		oldRunning = startupStatus.Running
 
 		if time.Since(lastChange) > timeout {
 			dumpPodDebugInfo(config.Client, pods)
@@ -2523,6 +2521,24 @@ func WaitForDeploymentStatus(c clientset.Interface, ns, deploymentName string, d
 	return nil
 }
 
+// WaitForDeploymentUpdatedReplicasLTE waits for given deployment to be observed by the controller and has at least a number of updatedReplicas
+func WaitForDeploymentUpdatedReplicasLTE(c clientset.Interface, ns, deploymentName string, minUpdatedReplicas int, desiredGeneration int64) error {
+	err := wait.Poll(Poll, 5*time.Minute, func() (bool, error) {
+		deployment, err := c.Extensions().Deployments(ns).Get(deploymentName)
+		if err != nil {
+			return false, err
+		}
+		if deployment.Status.ObservedGeneration >= desiredGeneration && deployment.Status.UpdatedReplicas >= minUpdatedReplicas {
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		return fmt.Errorf("error waiting for deployment %s to have at least %d updpatedReplicas: %v", deploymentName, minUpdatedReplicas, err)
+	}
+	return nil
+}
+
 // WaitForDeploymentRollbackCleared waits for given deployment either started rolling back or doesn't need to rollback.
 // Note that rollback should be cleared shortly, so we only wait for 1 minute here to fail early.
 func WaitForDeploymentRollbackCleared(c clientset.Interface, ns, deploymentName string) error {
@@ -2696,7 +2712,7 @@ func UpdateDeploymentWithRetries(c *clientset.Clientset, namespace, name string,
 		// Apply the update, then attempt to push it to the apiserver.
 		applyUpdate(deployment)
 		if deployment, err = deployments.Update(deployment); err == nil {
-			Logf("updating deployment %s", name)
+			Logf("Updating deployment %s", name)
 			return true, nil
 		}
 		return false, nil
@@ -3687,7 +3703,7 @@ func LaunchWebserverPod(f *Framework, podName, nodeName string) (ip string) {
 // CheckConnectivityToHost launches a pod running wget on the
 // specified node to test connectivity to the specified host.  An
 // error will be returned if the host is not reachable from the pod.
-func CheckConnectivityToHost(f *Framework, nodeName, podName, host string) error {
+func CheckConnectivityToHost(f *Framework, nodeName, podName, host string, timeout int) error {
 	contName := fmt.Sprintf("%s-container", podName)
 	pod := &api.Pod{
 		TypeMeta: unversioned.TypeMeta{
@@ -3701,7 +3717,7 @@ func CheckConnectivityToHost(f *Framework, nodeName, podName, host string) error
 				{
 					Name:    contName,
 					Image:   "gcr.io/google_containers/busybox:1.24",
-					Command: []string{"wget", "-s", host},
+					Command: []string{"wget", fmt.Sprintf("--timeout=%d", timeout), "-s", host},
 				},
 			},
 			NodeName:      nodeName,

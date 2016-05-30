@@ -24,6 +24,7 @@ import (
 
 	"k8s.io/kubernetes/pkg/admission"
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/unversioned"
 	apiutil "k8s.io/kubernetes/pkg/api/util"
 	"k8s.io/kubernetes/pkg/api/validation"
 	"k8s.io/kubernetes/pkg/apimachinery/registered"
@@ -31,7 +32,7 @@ import (
 	"k8s.io/kubernetes/pkg/genericapiserver"
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
 	"k8s.io/kubernetes/pkg/master/ports"
-	etcdstorage "k8s.io/kubernetes/pkg/storage/etcd"
+	"k8s.io/kubernetes/pkg/storage/storagebackend"
 	"k8s.io/kubernetes/pkg/util/config"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
 
@@ -60,7 +61,7 @@ type APIServer struct {
 	EnableWatchCache           bool
 	EnableSwaggerUI            bool
 	EtcdServersOverrides       []string
-	EtcdConfig                 etcdstorage.EtcdConfig
+	StorageConfig              storagebackend.Config
 	EventTTL                   time.Duration
 	ExternalHost               string
 	KeystoneURL                string
@@ -78,8 +79,6 @@ type APIServer struct {
 	RuntimeConfig              config.ConfigurationMap
 	SSHKeyfile                 string
 	SSHUser                    string
-	ServiceAccountKeyFile      string
-	ServiceAccountLookup       bool
 	ServiceClusterIPRange      net.IPNet // TODO: make this a list
 	ServiceNodePortRange       utilnet.PortRange
 	StorageVersions            string
@@ -101,7 +100,7 @@ func NewAPIServer() *APIServer {
 		AuthorizationMode:       "AlwaysAllow",
 		DeleteCollectionWorkers: 1,
 		EnableLogsSupport:       true,
-		EtcdConfig: etcdstorage.EtcdConfig{
+		StorageConfig: storagebackend.Config{
 			Prefix: genericapiserver.DefaultEtcdPathPrefix,
 		},
 		EventTTL:               1 * time.Hour,
@@ -121,39 +120,53 @@ func NewAPIServer() *APIServer {
 }
 
 // dest must be a map of group to groupVersion.
-func gvToMap(gvList string, dest map[string]string) {
-	for _, gv := range strings.Split(gvList, ",") {
-		if gv == "" {
+func mergeGroupVersionIntoMap(gvList string, dest map[string]unversioned.GroupVersion) error {
+	for _, gvString := range strings.Split(gvList, ",") {
+		if gvString == "" {
 			continue
 		}
 		// We accept two formats. "group/version" OR
 		// "group=group/version". The latter is used when types
 		// move between groups.
-		if !strings.Contains(gv, "=") {
-			dest[apiutil.GetGroup(gv)] = gv
+		if !strings.Contains(gvString, "=") {
+			gv, err := unversioned.ParseGroupVersion(gvString)
+			if err != nil {
+				return err
+			}
+			dest[gv.Group] = gv
+
 		} else {
-			parts := strings.SplitN(gv, "=", 2)
-			// TODO: error checking.
-			dest[parts[0]] = parts[1]
+			parts := strings.SplitN(gvString, "=", 2)
+			gv, err := unversioned.ParseGroupVersion(parts[1])
+			if err != nil {
+				return err
+			}
+			dest[parts[0]] = gv
 		}
 	}
+
+	return nil
 }
 
-// StorageGroupsToGroupVersions returns a map from group name to group version,
+// StorageGroupsToEncodingVersion returns a map from group name to group version,
 // computed from the s.DeprecatedStorageVersion and s.StorageVersions flags.
 // TODO: can we move the whole storage version concept to the generic apiserver?
-func (s *APIServer) StorageGroupsToGroupVersions() map[string]string {
-	storageVersionMap := map[string]string{}
+func (s *APIServer) StorageGroupsToEncodingVersion() (map[string]unversioned.GroupVersion, error) {
+	storageVersionMap := map[string]unversioned.GroupVersion{}
 	if s.DeprecatedStorageVersion != "" {
-		storageVersionMap[""] = s.DeprecatedStorageVersion
+		storageVersionMap[""] = unversioned.GroupVersion{Group: apiutil.GetGroup(s.DeprecatedStorageVersion), Version: apiutil.GetVersion(s.DeprecatedStorageVersion)}
 	}
 
 	// First, get the defaults.
-	gvToMap(s.DefaultStorageVersions, storageVersionMap)
+	if err := mergeGroupVersionIntoMap(s.DefaultStorageVersions, storageVersionMap); err != nil {
+		return nil, err
+	}
 	// Override any defaults with the user settings.
-	gvToMap(s.StorageVersions, storageVersionMap)
+	if err := mergeGroupVersionIntoMap(s.StorageVersions, storageVersionMap); err != nil {
+		return nil, err
+	}
 
-	return storageVersionMap
+	return storageVersionMap, nil
 }
 
 // AddFlags adds flags for a specific APIServer to the specified FlagSet
@@ -215,21 +228,20 @@ func (s *APIServer) AddFlags(fs *pflag.FlagSet) {
 		"The OpenID claim to use as the user name. Note that claims other than the default ('sub') is not "+
 		"guaranteed to be unique and immutable. This flag is experimental, please see the authentication documentation for further details.")
 	fs.StringVar(&s.OIDCGroupsClaim, "oidc-groups-claim", "", "If provided, the name of a custom OpenID Connect claim for specifying user groups. The claim value is expected to be an array of strings. This flag is experimental, please see the authentication documentation for further details.")
-	fs.StringVar(&s.ServiceAccountKeyFile, "service-account-key-file", s.ServiceAccountKeyFile, "File containing PEM-encoded x509 RSA private or public key, used to verify ServiceAccount tokens. If unspecified, --tls-private-key-file is used.")
-	fs.BoolVar(&s.ServiceAccountLookup, "service-account-lookup", s.ServiceAccountLookup, "If true, validate ServiceAccount tokens exist in etcd as part of authentication.")
 	fs.StringVar(&s.KeystoneURL, "experimental-keystone-url", s.KeystoneURL, "If passed, activates the keystone authentication plugin")
 	fs.StringVar(&s.AuthorizationMode, "authorization-mode", s.AuthorizationMode, "Ordered list of plug-ins to do authorization on secure port. Comma-delimited list of: "+strings.Join(apiserver.AuthorizationModeChoices, ","))
 	fs.StringVar(&s.AuthorizationConfig.PolicyFile, "authorization-policy-file", s.AuthorizationConfig.PolicyFile, "File with authorization policy in csv format, used with --authorization-mode=ABAC, on the secure port.")
 	fs.StringVar(&s.AuthorizationConfig.WebhookConfigFile, "authorization-webhook-config-file", s.AuthorizationConfig.WebhookConfigFile, "File with webhook configuration in kubeconfig format, used with --authorization-mode=Webhook. The API server will query the remote service to determine access on the API server's secure port.")
 	fs.StringVar(&s.AdmissionControl, "admission-control", s.AdmissionControl, "Ordered list of plug-ins to do admission control of resources into cluster. Comma-delimited list of: "+strings.Join(admission.GetPlugins(), ", "))
 	fs.StringVar(&s.AdmissionControlConfigFile, "admission-control-config-file", s.AdmissionControlConfigFile, "File with admission control configuration.")
-	fs.StringSliceVar(&s.EtcdConfig.ServerList, "etcd-servers", s.EtcdConfig.ServerList, "List of etcd servers to watch (http://ip:port), comma separated.")
+	fs.StringVar(&s.StorageConfig.Type, "storage-backend", s.StorageConfig.Type, "The storage backend for persistence. Options: 'etcd2', 'etcd3'.")
+	fs.StringSliceVar(&s.StorageConfig.ServerList, "etcd-servers", s.StorageConfig.ServerList, "List of etcd servers to watch (http://ip:port), comma separated.")
 	fs.StringSliceVar(&s.EtcdServersOverrides, "etcd-servers-overrides", s.EtcdServersOverrides, "Per-resource etcd servers overrides, comma separated. The individual override format: group/resource#servers, where servers are http://ip:port, semicolon separated.")
-	fs.StringVar(&s.EtcdConfig.Prefix, "etcd-prefix", s.EtcdConfig.Prefix, "The prefix for all resource paths in etcd.")
-	fs.StringVar(&s.EtcdConfig.KeyFile, "etcd-keyfile", s.EtcdConfig.KeyFile, "SSL key file used to secure etcd communication")
-	fs.StringVar(&s.EtcdConfig.CertFile, "etcd-certfile", s.EtcdConfig.CertFile, "SSL certification file used to secure etcd communication")
-	fs.StringVar(&s.EtcdConfig.CAFile, "etcd-cafile", s.EtcdConfig.CAFile, "SSL Certificate Authority file used to secure etcd communication")
-	fs.BoolVar(&s.EtcdConfig.Quorum, "etcd-quorum-read", s.EtcdConfig.Quorum, "If true, enable quorum read")
+	fs.StringVar(&s.StorageConfig.Prefix, "etcd-prefix", s.StorageConfig.Prefix, "The prefix for all resource paths in etcd.")
+	fs.StringVar(&s.StorageConfig.KeyFile, "etcd-keyfile", s.StorageConfig.KeyFile, "SSL key file used to secure etcd communication")
+	fs.StringVar(&s.StorageConfig.CertFile, "etcd-certfile", s.StorageConfig.CertFile, "SSL certification file used to secure etcd communication")
+	fs.StringVar(&s.StorageConfig.CAFile, "etcd-cafile", s.StorageConfig.CAFile, "SSL Certificate Authority file used to secure etcd communication")
+	fs.BoolVar(&s.StorageConfig.Quorum, "etcd-quorum-read", s.StorageConfig.Quorum, "If true, enable quorum read")
 	fs.StringSliceVar(&s.CorsAllowedOriginList, "cors-allowed-origins", s.CorsAllowedOriginList, "List of allowed origins for CORS, comma separated.  An allowed origin can be a regular expression to support subdomain matching.  If this list is empty CORS will not be enabled.")
 	fs.BoolVar(&s.AllowPrivileged, "allow-privileged", s.AllowPrivileged, "If true, allow privileged containers.")
 	fs.IPNetVar(&s.ServiceClusterIPRange, "service-cluster-ip-range", s.ServiceClusterIPRange, "A CIDR notation IP range from which to assign service cluster IPs. This must not overlap with any IP ranges assigned to nodes for pods.")

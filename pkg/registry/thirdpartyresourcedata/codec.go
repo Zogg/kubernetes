@@ -202,6 +202,8 @@ type thirdPartyResourceDataCodec struct {
 	kind     string
 }
 
+var _ runtime.Codec = &thirdPartyResourceDataCodec{}
+
 func NewCodec(codec runtime.Codec, kind string) runtime.Codec {
 	return &thirdPartyResourceDataCodec{codec, kind}
 }

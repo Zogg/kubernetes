@@ -273,13 +273,16 @@ function upload-server-tars() {
 function detect-node-names {
   detect-project
   INSTANCE_GROUPS=()
-  INSTANCE_GROUPS+=($(gcloud compute instance-groups managed list --zone "${ZONE}" --project "${PROJECT}" | grep ${NODE_INSTANCE_PREFIX} | cut -f1 -d" " || true))
+  INSTANCE_GROUPS+=($(gcloud compute instance-groups managed list \
+    --zone "${ZONE}" --project "${PROJECT}" \
+    --regexp "${NODE_INSTANCE_PREFIX}-.+" \
+    --format='value(instanceGroup)' || true))
   NODE_NAMES=()
   if [[ -n "${INSTANCE_GROUPS[@]:-}" ]]; then
     for group in "${INSTANCE_GROUPS[@]}"; do
       NODE_NAMES+=($(gcloud compute instance-groups managed list-instances \
         "${group}" --zone "${ZONE}" --project "${PROJECT}" \
-        --format=yaml | grep instance: | cut -d ' ' -f 2))
+        --format='value(instance)'))
     done
     echo "INSTANCE_GROUPS=${INSTANCE_GROUPS[*]}" >&2
     echo "NODE_NAMES=${NODE_NAMES[*]}" >&2
@@ -738,8 +741,8 @@ function create-nodes() {
         --template "$template_name" || true;
     gcloud compute instance-groups managed wait-until-stable \
         "${NODE_INSTANCE_PREFIX}-group-$i" \
-	      --zone "${ZONE}" \
-	      --project "${PROJECT}" || true;
+        --zone "${ZONE}" \
+        --project "${PROJECT}" || true;
   done
 
   # TODO: We don't add a suffix for the last group to keep backward compatibility when there's only one MIG.
@@ -1185,10 +1188,11 @@ function prepare-push() {
 function push-master {
   echo "Updating master metadata ..."
   write-master-env
-  add-instance-metadata-from-file "${KUBE_MASTER}" "kube-env=${KUBE_TEMP}/master-kube-env.yaml" "startup-script=${KUBE_ROOT}/cluster/gce/configure-vm.sh"
+  prepare-startup-script
+  add-instance-metadata-from-file "${KUBE_MASTER}" "kube-env=${KUBE_TEMP}/master-kube-env.yaml" "startup-script=${KUBE_TEMP}/configure-vm.sh"
 
   echo "Pushing to master (log at ${OUTPUT}/push-${KUBE_MASTER}.log) ..."
-  cat ${KUBE_ROOT}/cluster/gce/configure-vm.sh | gcloud compute ssh --ssh-flag="-o LogLevel=quiet" --project "${PROJECT}" --zone "${ZONE}" "${KUBE_MASTER}" --command "sudo bash -s -- --push" &> ${OUTPUT}/push-"${KUBE_MASTER}".log
+  cat ${KUBE_TEMP}/configure-vm.sh | gcloud compute ssh --ssh-flag="-o LogLevel=quiet" --project "${PROJECT}" --zone "${ZONE}" "${KUBE_MASTER}" --command "sudo bash -s -- --push" &> ${OUTPUT}/push-"${KUBE_MASTER}".log
 }
 
 # Push binaries to kubernetes node
@@ -1196,10 +1200,11 @@ function push-node() {
   node=${1}
 
   echo "Updating node ${node} metadata... "
-  add-instance-metadata-from-file "${node}" "kube-env=${KUBE_TEMP}/node-kube-env.yaml" "startup-script=${KUBE_ROOT}/cluster/gce/configure-vm.sh"
+  prepare-startup-script
+  add-instance-metadata-from-file "${node}" "kube-env=${KUBE_TEMP}/node-kube-env.yaml" "startup-script=${KUBE_TEMP}/configure-vm.sh"
 
   echo "Start upgrading node ${node} (log at ${OUTPUT}/push-${node}.log) ..."
-  cat ${KUBE_ROOT}/cluster/gce/configure-vm.sh | gcloud compute ssh --ssh-flag="-o LogLevel=quiet" --project "${PROJECT}" --zone "${ZONE}" "${node}" --command "sudo bash -s -- --push" &> ${OUTPUT}/push-"${node}".log
+  cat ${KUBE_TEMP}/configure-vm.sh | gcloud compute ssh --ssh-flag="-o LogLevel=quiet" --project "${PROJECT}" --zone "${ZONE}" "${node}" --command "sudo bash -s -- --push" &> ${OUTPUT}/push-"${node}".log
 }
 
 # Push binaries to kubernetes cluster
@@ -1353,4 +1358,11 @@ function ssh-to-node {
 # Perform preparations required to run e2e tests
 function prepare-e2e() {
   detect-project
+}
+
+# Writes configure-vm.sh to a temporary location with comments stripped. GCE
+# limits the size of metadata fields to 32K, and stripping comments is the
+# easiest way to buy us a little more room.
+function prepare-startup-script() {
+  sed '/^\s*#\([^!].*\)*$/ d' ${KUBE_ROOT}/cluster/gce/configure-vm.sh > ${KUBE_TEMP}/configure-vm.sh
 }

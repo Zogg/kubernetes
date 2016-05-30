@@ -72,6 +72,7 @@ import (
 	"k8s.io/kubernetes/pkg/util/atomic"
 	"k8s.io/kubernetes/pkg/util/bandwidth"
 	utilerrors "k8s.io/kubernetes/pkg/util/errors"
+	utilexec "k8s.io/kubernetes/pkg/util/exec"
 	"k8s.io/kubernetes/pkg/util/flowcontrol"
 	kubeio "k8s.io/kubernetes/pkg/util/io"
 	"k8s.io/kubernetes/pkg/util/mount"
@@ -341,8 +342,6 @@ func NewMainKubelet(
 		enableCustomMetrics:          enableCustomMetrics,
 		babysitDaemons:               babysitDaemons,
 	}
-	// TODO: Factor out "StatsProvider" from Kubelet so we don't have a cyclic dependency
-	klet.resourceAnalyzer = stats.NewResourceAnalyzer(klet, volumeStatsAggPeriod)
 
 	if klet.flannelExperimentalOverlay {
 		glog.Infof("Flannel is in charge of podCIDR and overlay networking.")
@@ -426,6 +425,8 @@ func NewMainKubelet(
 			klet.livenessManager,
 			klet.volumeManager,
 			klet.httpClient,
+			utilexec.New(),
+			kubecontainer.RealOS{},
 			imageBackOff,
 			serializeImagePulls,
 		)
@@ -436,6 +437,9 @@ func NewMainKubelet(
 	default:
 		return nil, fmt.Errorf("unsupported container runtime %q specified", containerRuntime)
 	}
+
+	// TODO: Factor out "StatsProvider" from Kubelet so we don't have a cyclic dependency
+	klet.resourceAnalyzer = stats.NewResourceAnalyzer(klet, volumeStatsAggPeriod, klet.containerRuntime)
 
 	klet.pleg = pleg.NewGenericPLEG(klet.containerRuntime, plegChannelCapacity, plegRelistPeriod, klet.podCache, util.RealClock{})
 	klet.runtimeState = newRuntimeState(maxWaitForContainerRuntime, configureCBR0)
@@ -830,8 +834,12 @@ func (kl *Kubelet) getPluginDir(pluginName string) string {
 	return path.Join(kl.getPluginsDir(), pluginName)
 }
 
-// getPodDir returns the full path to the per-pod data directory for the
-// specified pod.  This directory may not exist if the pod does not exist.
+// GetPodDir returns the full path to the per-pod data directory for the
+// specified pod. This directory may not exist if the pod does not exist.
+func (kl *Kubelet) GetPodDir(podUID types.UID) string {
+	return kl.getPodDir(podUID)
+}
+
 func (kl *Kubelet) getPodDir(podUID types.UID) string {
 	// Backwards compat.  The "old" stuff should be removed before 1.0
 	// release.  The thinking here is this:
@@ -1803,7 +1811,7 @@ func (kl *Kubelet) syncPod(pod *api.Pod, mirrorPod *api.Pod, podStatus *kubecont
 	if !kl.shapingEnabled() {
 		return nil
 	}
-	ingress, egress, err := extractBandwidthResources(pod)
+	ingress, egress, err := bandwidth.ExtractPodBandwidthResources(pod.Annotations)
 	if err != nil {
 		return err
 	}
@@ -1929,7 +1937,7 @@ func (kl *Kubelet) cleanupBandwidthLimits(allPods []*api.Pod) error {
 	possibleCIDRs := sets.String{}
 	for ix := range allPods {
 		pod := allPods[ix]
-		ingress, egress, err := extractBandwidthResources(pod)
+		ingress, egress, err := bandwidth.ExtractPodBandwidthResources(pod.Annotations)
 		if err != nil {
 			return err
 		}
@@ -1975,7 +1983,7 @@ func (kl *Kubelet) cleanupOrphanedVolumes(pods []*api.Pod, runningPods []*kubeco
 		runningSet.Insert(string(pod.ID))
 	}
 
-	for name, cleanerTuple := range currentVolumes {
+	for name, cleaner := range currentVolumes {
 		if _, ok := desiredVolumes[name]; !ok {
 			parts := strings.Split(name, "/")
 			if runningSet.Has(parts[0]) {
@@ -1988,19 +1996,19 @@ func (kl *Kubelet) cleanupOrphanedVolumes(pods []*api.Pod, runningPods []*kubeco
 			// TODO(yifan): Refactor this hacky string manipulation.
 			kl.volumeManager.DeleteVolumes(types.UID(parts[0]))
 			// Get path reference count
-			refs, err := mount.GetMountRefs(kl.mounter, cleanerTuple.Unmounter.GetPath())
+			refs, err := mount.GetMountRefs(kl.mounter, cleaner.Unmounter.GetPath())
 			if err != nil {
 				return fmt.Errorf("Could not get mount path references %v", err)
 			}
 			//TODO (jonesdl) This should not block other kubelet synchronization procedures
-			err = cleanerTuple.Unmounter.TearDown()
+			err = cleaner.Unmounter.TearDown()
 			if err != nil {
 				glog.Errorf("Could not tear down volume %q: %v", name, err)
 			}
 
 			// volume is unmounted.  some volumes also require detachment from the node.
-			if cleanerTuple.Detacher != nil && len(refs) == 1 {
-				detacher := *cleanerTuple.Detacher
+			if cleaner.Detacher != nil && len(refs) == 1 {
+				detacher := *cleaner.Detacher
 				err = detacher.Detach()
 				if err != nil {
 					glog.Errorf("Could not detach volume %q: %v", name, err)
@@ -2271,19 +2279,6 @@ func hasHostPortConflicts(pods []*api.Pod) bool {
 		}
 	}
 	return false
-}
-
-// hasInsufficientfFreeResources detects pods that exceeds node's cpu and memory resource.
-func (kl *Kubelet) hasInsufficientfFreeResources(pods []*api.Pod) (bool, bool) {
-	info, err := kl.GetCachedMachineInfo()
-	if err != nil {
-		glog.Errorf("error getting machine info: %v", err)
-		// TODO: Should we admit the pod when machine info is unavailable?
-		return false, false
-	}
-	capacity := cadvisor.CapacityFromMachineInfo(info)
-	_, notFittingCPU, notFittingMemory := predicates.CheckPodsExceedingFreeResources(pods, capacity)
-	return len(notFittingCPU) > 0, len(notFittingMemory) > 0
 }
 
 // handleOutOfDisk detects if pods can't fit due to lack of disk space.
@@ -3585,11 +3580,11 @@ func (kl *Kubelet) GetCachedMachineInfo() (*cadvisorapi.MachineInfo, error) {
 }
 
 func (kl *Kubelet) ListenAndServe(address net.IP, port uint, tlsOptions *server.TLSOptions, auth server.AuthInterface, enableDebuggingHandlers bool) {
-	server.ListenAndServeKubeletServer(kl, kl.resourceAnalyzer, address, port, tlsOptions, auth, enableDebuggingHandlers)
+	server.ListenAndServeKubeletServer(kl, kl.resourceAnalyzer, address, port, tlsOptions, auth, enableDebuggingHandlers, kl.containerRuntime)
 }
 
 func (kl *Kubelet) ListenAndServeReadOnly(address net.IP, port uint) {
-	server.ListenAndServeKubeletReadOnlyServer(kl, kl.resourceAnalyzer, address, port)
+	server.ListenAndServeKubeletReadOnlyServer(kl, kl.resourceAnalyzer, address, port, kl.containerRuntime)
 }
 
 // GetRuntime returns the current Runtime implementation in use by the kubelet. This func
@@ -3623,39 +3618,4 @@ func (kl *Kubelet) shapingEnabled() bool {
 
 func (kl *Kubelet) GetNodeConfig() cm.NodeConfig {
 	return kl.containerManager.GetNodeConfig()
-}
-
-var minRsrc = resource.MustParse("1k")
-var maxRsrc = resource.MustParse("1P")
-
-func validateBandwidthIsReasonable(rsrc *resource.Quantity) error {
-	if rsrc.Value() < minRsrc.Value() {
-		return fmt.Errorf("resource is unreasonably small (< 1kbit)")
-	}
-	if rsrc.Value() > maxRsrc.Value() {
-		return fmt.Errorf("resoruce is unreasonably large (> 1Pbit)")
-	}
-	return nil
-}
-
-func extractBandwidthResources(pod *api.Pod) (ingress, egress *resource.Quantity, err error) {
-	str, found := pod.Annotations["kubernetes.io/ingress-bandwidth"]
-	if found {
-		if ingress, err = resource.ParseQuantity(str); err != nil {
-			return nil, nil, err
-		}
-		if err := validateBandwidthIsReasonable(ingress); err != nil {
-			return nil, nil, err
-		}
-	}
-	str, found = pod.Annotations["kubernetes.io/egress-bandwidth"]
-	if found {
-		if egress, err = resource.ParseQuantity(str); err != nil {
-			return nil, nil, err
-		}
-		if err := validateBandwidthIsReasonable(egress); err != nil {
-			return nil, nil, err
-		}
-	}
-	return ingress, egress, nil
 }

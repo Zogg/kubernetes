@@ -24,6 +24,10 @@ type KubeProxyConfiguration struct {
 	// bindAddress is the IP address for the proxy server to serve on (set to 0.0.0.0
 	// for all interfaces)
 	BindAddress string `json:"bindAddress"`
+	// clusterCIDR is the CIDR range of the pods in the cluster. It is used to
+	// bridge traffic coming from outside of the cluster. If not provided,
+	// no off-cluster bridging will be performed.
+	ClusterCIDR string `json:"clusterCIDR"`
 	// healthzBindAddress is the IP address for the health check server to serve on,
 	// defaulting to 127.0.0.1 (set to 0.0.0.0 for all interfaces)
 	HealthzBindAddress string `json:"healthzBindAddress"`
@@ -309,6 +313,8 @@ type KubeletConfiguration struct {
 	// registerSchedulable tells the kubelet to register the node as
 	// schedulable. No-op if register-node is false.
 	RegisterSchedulable bool `json:"registerSchedulable"`
+	// contentType is contentType of requests sent to apiserver.
+	ContentType string `json:"contentType"`
 	// kubeAPIQPS is the QPS to use while talking with kubernetes apiserver
 	KubeAPIQPS float32 `json:"kubeAPIQPS"`
 	// kubeAPIBurst is the burst to allow while talking with kubernetes
@@ -335,6 +341,12 @@ type KubeletConfiguration struct {
 	NonMasqueradeCIDR string `json:"nonMasqueradeCIDR"`
 	// enable gathering custom metrics.
 	EnableCustomMetrics bool `json:"enableCustomMetrics"`
+	// Comma-delimited list of hard eviction expressions.  For example, 'memory.available<300Mi'.
+	EvictionHard string `json:"evictionHard,omitempty"`
+	// Comma-delimited list of soft eviction expressions.  For example, 'memory.available<300Mi'.
+	EvictionSoft string `json:"evictionSoft,omitempty"`
+	// Comma-delimeted list of grace periods for each soft eviction signal.  For example, 'memory.available=30s'.
+	EvictionSoftGracePeriod string `json:"evictionSoftGracePeriod,omitempty"`
 }
 
 type KubeSchedulerConfiguration struct {
@@ -350,6 +362,8 @@ type KubeSchedulerConfiguration struct {
 	PolicyConfigFile string `json:"policyConfigFile"`
 	// enableProfiling enables profiling via web interface.
 	EnableProfiling bool `json:"enableProfiling"`
+	// contentType is contentType of requests sent to apiserver.
+	ContentType string `json:"contentType"`
 	// kubeAPIQPS is the QPS to use while talking with kubernetes apiserver.
 	KubeAPIQPS float32 `json:"kubeAPIQPS"`
 	// kubeAPIBurst is the QPS burst to use while talking with kubernetes apiserver.
@@ -502,14 +516,18 @@ type KubeControllerManagerConfiguration struct {
 	// rootCAFile is the root certificate authority will be included in service
 	// account's token secret. This must be a valid PEM-encoded CA bundle.
 	RootCAFile string `json:"rootCAFile"`
+	// contentType is contentType of requests sent to apiserver.
+	ContentType string `json:"contentType"`
 	// kubeAPIQPS is the QPS to use while talking with kubernetes apiserver.
 	KubeAPIQPS float32 `json:"kubeAPIQPS"`
 	// kubeAPIBurst is the burst to use while talking with kubernetes apiserver.
 	KubeAPIBurst int `json:"kubeAPIBurst"`
 	// leaderElection defines the configuration of leader election client.
 	LeaderElection LeaderElectionConfiguration `json:"leaderElection"`
-	// vloumeConfiguration holds configuration for volume related features.
+	// volumeConfiguration holds configuration for volume related features.
 	VolumeConfiguration VolumeConfiguration `json:"volumeConfiguration"`
+	// How long to wait between starting controller managers
+	ControllerStartInterval unversioned.Duration `json:"controllerStartInterval"`
 }
 
 // VolumeConfiguration contains *all* enumerated flags meant to configure all volume

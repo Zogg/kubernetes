@@ -42,7 +42,6 @@ import (
 	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/client/testing/core"
-	"k8s.io/kubernetes/pkg/client/unversioned/testclient"
 	cadvisortest "k8s.io/kubernetes/pkg/kubelet/cadvisor/testing"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
@@ -2367,10 +2366,24 @@ func TestHandlePortConflicts(t *testing.T) {
 	testKubelet.fakeCadvisor.On("RootFsInfo").Return(cadvisorapiv2.FsInfo{}, nil)
 
 	kl.nodeLister = testNodeLister{nodes: []api.Node{
-		{ObjectMeta: api.ObjectMeta{Name: kl.nodeName}},
+		{
+			ObjectMeta: api.ObjectMeta{Name: kl.nodeName},
+			Status: api.NodeStatus{
+				Allocatable: api.ResourceList{
+					api.ResourcePods: *resource.NewQuantity(110, resource.DecimalSI),
+				},
+			},
+		},
 	}}
 	kl.nodeInfo = testNodeInfo{nodes: []api.Node{
-		{ObjectMeta: api.ObjectMeta{Name: kl.nodeName}},
+		{
+			ObjectMeta: api.ObjectMeta{Name: kl.nodeName},
+			Status: api.NodeStatus{
+				Allocatable: api.ResourceList{
+					api.ResourcePods: *resource.NewQuantity(110, resource.DecimalSI),
+				},
+			},
+		},
 	}}
 
 	spec := api.PodSpec{NodeName: kl.nodeName, Containers: []api.Container{{Ports: []api.ContainerPort{{HostPort: 80}}}}}
@@ -2428,10 +2441,24 @@ func TestHandleHostNameConflicts(t *testing.T) {
 	testKubelet.fakeCadvisor.On("RootFsInfo").Return(cadvisorapiv2.FsInfo{}, nil)
 
 	kl.nodeLister = testNodeLister{nodes: []api.Node{
-		{ObjectMeta: api.ObjectMeta{Name: "127.0.0.1"}},
+		{
+			ObjectMeta: api.ObjectMeta{Name: "127.0.0.1"},
+			Status: api.NodeStatus{
+				Allocatable: api.ResourceList{
+					api.ResourcePods: *resource.NewQuantity(110, resource.DecimalSI),
+				},
+			},
+		},
 	}}
 	kl.nodeInfo = testNodeInfo{nodes: []api.Node{
-		{ObjectMeta: api.ObjectMeta{Name: "127.0.0.1"}},
+		{
+			ObjectMeta: api.ObjectMeta{Name: "127.0.0.1"},
+			Status: api.NodeStatus{
+				Allocatable: api.ResourceList{
+					api.ResourcePods: *resource.NewQuantity(110, resource.DecimalSI),
+				},
+			},
+		},
 	}}
 
 	pods := []*api.Pod{
@@ -2487,10 +2514,24 @@ func TestHandleNodeSelector(t *testing.T) {
 	testKubelet := newTestKubelet(t)
 	kl := testKubelet.kubelet
 	kl.nodeLister = testNodeLister{nodes: []api.Node{
-		{ObjectMeta: api.ObjectMeta{Name: testKubeletHostname, Labels: map[string]string{"key": "B"}}},
+		{
+			ObjectMeta: api.ObjectMeta{Name: testKubeletHostname, Labels: map[string]string{"key": "B"}},
+			Status: api.NodeStatus{
+				Allocatable: api.ResourceList{
+					api.ResourcePods: *resource.NewQuantity(110, resource.DecimalSI),
+				},
+			},
+		},
 	}}
 	kl.nodeInfo = testNodeInfo{nodes: []api.Node{
-		{ObjectMeta: api.ObjectMeta{Name: testKubeletHostname, Labels: map[string]string{"key": "B"}}},
+		{
+			ObjectMeta: api.ObjectMeta{Name: testKubeletHostname, Labels: map[string]string{"key": "B"}},
+			Status: api.NodeStatus{
+				Allocatable: api.ResourceList{
+					api.ResourcePods: *resource.NewQuantity(110, resource.DecimalSI),
+				},
+			},
+		},
 	}}
 	testKubelet.fakeCadvisor.On("MachineInfo").Return(&cadvisorapi.MachineInfo{}, nil)
 	testKubelet.fakeCadvisor.On("DockerImagesFsInfo").Return(cadvisorapiv2.FsInfo{}, nil)
@@ -2875,7 +2916,7 @@ func TestUpdateNewNodeStatus(t *testing.T) {
 	if !actions[1].Matches("update", "nodes") || actions[1].GetSubresource() != "status" {
 		t.Fatalf("unexpected actions: %v", actions)
 	}
-	updatedNode, ok := actions[1].(testclient.UpdateAction).GetObject().(*api.Node)
+	updatedNode, ok := actions[1].(core.UpdateAction).GetObject().(*api.Node)
 	if !ok {
 		t.Errorf("unexpected object type")
 	}
@@ -2950,7 +2991,7 @@ func TestUpdateNewNodeOutOfDiskStatusWithTransitionFrequency(t *testing.T) {
 	if !actions[1].Matches("update", "nodes") || actions[1].GetSubresource() != "status" {
 		t.Fatalf("unexpected actions: %v", actions)
 	}
-	updatedNode, ok := actions[1].(testclient.UpdateAction).GetObject().(*api.Node)
+	updatedNode, ok := actions[1].(core.UpdateAction).GetObject().(*api.Node)
 	if !ok {
 		t.Errorf("unexpected object type")
 	}
@@ -3103,7 +3144,7 @@ func TestUpdateExistingNodeStatus(t *testing.T) {
 	if len(actions) != 2 {
 		t.Errorf("unexpected actions: %v", actions)
 	}
-	updateAction, ok := actions[1].(testclient.UpdateAction)
+	updateAction, ok := actions[1].(core.UpdateAction)
 	if !ok {
 		t.Errorf("unexpected action type.  expected UpdateAction, got %#v", actions[1])
 	}
@@ -3262,7 +3303,7 @@ func TestUpdateExistingNodeOutOfDiskStatusWithTransitionFrequency(t *testing.T) 
 		if len(actions) != 2 {
 			t.Errorf("%d. unexpected actions: %v", tcIdx, actions)
 		}
-		updateAction, ok := actions[1].(testclient.UpdateAction)
+		updateAction, ok := actions[1].(core.UpdateAction)
 		if !ok {
 			t.Errorf("%d. unexpected action type.  expected UpdateAction, got %#v", tcIdx, actions[1])
 		}
@@ -3378,7 +3419,7 @@ func TestUpdateNodeStatusWithRuntimeStateError(t *testing.T) {
 		if !actions[1].Matches("update", "nodes") || actions[1].GetSubresource() != "status" {
 			t.Fatalf("unexpected actions: %v", actions)
 		}
-		updatedNode, ok := actions[1].(testclient.UpdateAction).GetObject().(*api.Node)
+		updatedNode, ok := actions[1].(core.UpdateAction).GetObject().(*api.Node)
 		if !ok {
 			t.Errorf("unexpected action type.  expected UpdateAction, got %#v", actions[1])
 		}
@@ -4354,7 +4395,7 @@ func TestExtractBandwidthResources(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		ingress, egress, err := extractBandwidthResources(test.pod)
+		ingress, egress, err := bandwidth.ExtractPodBandwidthResources(test.pod.Annotations)
 		if test.expectError {
 			if err == nil {
 				t.Errorf("unexpected non-error")

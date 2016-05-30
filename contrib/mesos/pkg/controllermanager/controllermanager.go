@@ -136,7 +136,7 @@ func (s *CMServer) Run(_ []string) error {
 	endpoints := s.createEndpointController(clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "endpoint-controller")))
 	go endpoints.Run(s.ConcurrentEndpointSyncs, wait.NeverStop)
 
-	go replicationcontroller.NewReplicationManager(clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "replication-controller")), s.resyncPeriod, replicationcontroller.BurstReplicas, s.LookupCacheSizeForRC).
+	go replicationcontroller.NewReplicationManagerFromClient(clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "replication-controller")), s.resyncPeriod, replicationcontroller.BurstReplicas, s.LookupCacheSizeForRC).
 		Run(s.ConcurrentRCSyncs, wait.NeverStop)
 
 	if s.TerminatedPodGCThreshold > 0 {
@@ -193,7 +193,7 @@ func (s *CMServer) Run(_ []string) error {
 		Registry:                  resourceQuotaRegistry,
 		GroupKindsToReplenish:     groupKindsToReplenish,
 		ReplenishmentResyncPeriod: s.resyncPeriod,
-		ControllerFactory:         resourcequotacontroller.NewReplenishmentControllerFactory(resourceQuotaControllerClient),
+		ControllerFactory:         resourcequotacontroller.NewReplenishmentControllerFactoryFromClient(resourceQuotaControllerClient),
 	}
 	go resourcequotacontroller.NewResourceQuotaController(resourceQuotaControllerOptions).Run(s.ConcurrentResourceQuotaSyncs, wait.NeverStop)
 
@@ -248,13 +248,13 @@ func (s *CMServer) Run(_ []string) error {
 
 		if containsResource(resources, "daemonsets") {
 			glog.Infof("Starting daemon set controller")
-			go daemon.NewDaemonSetsController(clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "daemon-set-controller")), s.resyncPeriod, s.LookupCacheSizeForDaemonSet).
+			go daemon.NewDaemonSetsControllerFromClient(clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "daemon-set-controller")), s.resyncPeriod, s.LookupCacheSizeForDaemonSet).
 				Run(s.ConcurrentDaemonSetSyncs, wait.NeverStop)
 		}
 
 		if containsResource(resources, "jobs") {
 			glog.Infof("Starting job controller")
-			go job.NewJobController(clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "job-controller")), s.resyncPeriod).
+			go job.NewJobControllerFromClient(clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "job-controller")), s.resyncPeriod).
 				Run(s.ConcurrentJobSyncs, wait.NeverStop)
 		}
 
@@ -346,7 +346,7 @@ func (s *CMServer) createEndpointController(client *clientset.Clientset) kmendpo
 		return kmendpoint.NewEndpointController(client)
 	}
 	glog.V(2).Infof("Creating podIP:containerPort endpoint controller")
-	stockEndpointController := endpointcontroller.NewEndpointController(client, s.resyncPeriod)
+	stockEndpointController := endpointcontroller.NewEndpointControllerFromClient(client, s.resyncPeriod)
 	return stockEndpointController
 }
 

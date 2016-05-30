@@ -62,7 +62,7 @@ func testScheme(t *testing.T) (*runtime.Scheme, runtime.Codec) {
 }
 
 func newEtcdHelper(client etcd.Client, codec runtime.Codec, prefix string) storage.Interface {
-	return NewEtcdStorage(client, codec, prefix, false)
+	return *NewEtcdStorage(client, codec, prefix, false, etcdtest.DeserializationCacheSize)
 }
 
 // Returns an encoded version of api.Pod with the given name.
