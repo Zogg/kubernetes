@@ -271,7 +271,7 @@ func getGroupList(server *httptest.Server) (*unversioned.APIGroupList, error) {
 }
 
 func TestDiscoveryAtAPIS(t *testing.T) {
-	master, storserver, config, assert := newMaster(t)
+	master, storserver, _, assert := newMaster(t)
 	defer storserver.Terminate(t)
 
 	server := httptest.NewServer(master.HandlerContainer.ServeMux)
