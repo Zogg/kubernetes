@@ -31,7 +31,6 @@ import (
 	"k8s.io/kubernetes/pkg/genericapiserver"
 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
 	"k8s.io/kubernetes/pkg/master/ports"
-	consulstorage "k8s.io/kubernetes/pkg/storage/consul"
 	"k8s.io/kubernetes/pkg/storage/storagebackend"
 
 	"github.com/spf13/pflag"
@@ -52,7 +51,6 @@ type APIServer struct {
 	DeprecatedStorageVersion   string
 	EtcdServersOverrides       []string
 	StorageConfig              storagebackend.Config
-	ConsulConfig               consulstorage.ConsulKvStorageConfig
 	EventTTL                   time.Duration
 	KeystoneURL                string
 	KubeletConfig              kubeletclient.KubeletClientConfig

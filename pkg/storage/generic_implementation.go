@@ -12,7 +12,6 @@ import (
 	
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/meta"
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/conversion"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage/generic"
@@ -34,17 +33,15 @@ type genericWrapper struct {
 	cache utilcache.Cache
 }
 
-const maxKvCacheEntries int = 50000
 
-
-func NewGenericWrapper(raw generic.InterfaceRaw, codec runtime.Codec, prefix string) Interface {
+func NewGenericWrapper(raw generic.InterfaceRaw, codec runtime.Codec, prefix string, deserializationCacheSize int) Interface {
 	return &genericWrapper{
 		generic:    raw,
 		versioner:  APIObjectVersioner{},
 		codec:      codec,
 		copier:     api.Scheme,
 		pathPrefix: path.Join("/", prefix),
-		cache:      utilcache.NewCache(maxKvCacheEntries),
+		cache:      utilcache.NewCache(deserializationCacheSize),
 	}
 } 
 
@@ -213,7 +210,7 @@ func(s *genericWrapper) outputList(key string, filter FilterFunc, listObj runtim
 			}
 	
 			// being unable to set the version does not prevent the object from being extracted
-			_ = s.versioner.UpdateObject(obj, nil, raw.Version)
+			_ = s.versioner.UpdateObject(obj, raw.Version)
 			if filter(obj) {
 				v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
 			}
@@ -258,7 +255,6 @@ func(s *genericWrapper) GuaranteedUpdate(ctx context.Context, key string, ptrToT
 		}
 		meta := ResponseMeta{
 			TTL:                raw.TTL,
-			Expiration:         nil, // TODO: translate ttl to expiration
 			ResourceVersion:    raw.Version,
 		}
 		outObj, newTTL, err := tryUpdate(obj, meta)
@@ -268,7 +264,7 @@ func(s *genericWrapper) GuaranteedUpdate(ctx context.Context, key string, ptrToT
 		if newTTL != nil {
 			raw.TTL = int64(*newTTL)
 		}
-		if err := s.versioner.UpdateObject(outObj, meta.Expiration, 0); err != nil {
+		if err := s.versioner.UpdateObject(outObj, 0); err != nil {
 			return errors.New("resourceVersion cannot be set on objects store in kv")
 		}
 		data, err := runtime.Encode(s.codec, outObj)
@@ -320,7 +316,7 @@ func (s *genericWrapper) extractObj(raw generic.RawObject, inErr error, objPtr r
 		return fmt.Errorf("unable to decode object %s into %v", gvk.String(), reflect.TypeOf(objPtr))
 	}
 	// being unable to set the version does not prevent the object from being extracted
-	_ = s.versioner.UpdateObject(objPtr, nil, raw.Version)
+	_ = s.versioner.UpdateObject(objPtr, raw.Version)
 	return err
 }
 
@@ -471,14 +467,8 @@ func (w *genericWatcher) decodeObject(raw *generic.RawObject) (runtime.Object, e
 		return nil, err
 	}
 
-	var expiration *time.Time
-	if raw.TTL != 0 {
-		NewExpiration := time.Now().UTC().Add( time.Duration(raw.TTL) * time.Second )
-		expiration = &NewExpiration
-	}
-
 	// ensure resource version is set on the object we load from etcd
-	if err := w.storage.versioner.UpdateObject(obj, expiration, raw.Version); err != nil {
+	if err := w.storage.versioner.UpdateObject(obj, raw.Version); err != nil {
 		utilruntime.HandleError(fmt.Errorf("failure to version api object (%d) %#v: %v", raw.Version, obj, err))
 	}
 	
@@ -510,13 +500,10 @@ func(w *genericWatcher) ResultChan() <-chan watch.Event {
 type APIObjectVersioner struct{}
 
 // UpdateObject implements Versioner
-func (a APIObjectVersioner) UpdateObject(obj runtime.Object, expiration *time.Time, resourceVersion uint64) error {
+func (a APIObjectVersioner) UpdateObject(obj runtime.Object, resourceVersion uint64) error {
 	accessor, err := meta.Accessor(obj)
 	if err != nil {
 		return err
-	}
-	if expiration != nil {
-		accessor.SetDeletionTimestamp(&unversioned.Time{Time: *expiration})
 	}
 	versionString := ""
 	if resourceVersion != 0 {

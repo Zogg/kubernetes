@@ -38,7 +38,7 @@ import (
 
 func NewStorage(t *testing.T, factory storagefactory.TestServerFactory, group string) (storage.Interface, storagefactory.TestServer) {
 	server := factory.NewTestClientServer(t)
-	storage := storage.NewGenericWrapper(server.NewRawStorage(), testapi.Groups[group].Codec(), etcdtest.PathPrefix())
+	storage := storage.NewGenericWrapper(server.NewRawStorage(), testapi.Groups[group].Codec(), etcdtest.PathPrefix(), etcdtest.DeserializationCacheSize)
 	return storage, server
 }
 

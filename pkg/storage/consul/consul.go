@@ -6,7 +6,6 @@ import (
 	"time"
 	"net/url"
   
-	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/generic"
 	"k8s.io/kubernetes/pkg/util"
@@ -17,31 +16,6 @@ import (
 )
 
 const DefaultWaitTimeout = time.Duration( 10 * time.Second )
-
-type ConsulKvStorageConfig struct {
-	Config      ConsulConfig
-	Codec       runtime.Codec
-	Prefix      string
-}
-
-// implements storage.Config
-func (c *ConsulKvStorageConfig) GetType() string {
-	return "consulkv"
-}
-
-// implements storage.Config
-func (c *ConsulKvStorageConfig) NewStorage() (storage.Interface, error) {
-	raw, err := c.Config.NewRawStorage()
-	if err != nil {
-		return nil, err
-	}
-	return storage.NewGenericWrapper(raw, c.Codec, c.Prefix), nil
-}
-
-// implements storage.Config
-func (c *ConsulKvStorageConfig) NewRawStorage()(generic.InterfaceRaw, error) {
-	return c.Config.NewRawStorage()
-}
 
 type ConsulConfig struct {
 	// TODO add specific configuration values for k8s to pass to consul client

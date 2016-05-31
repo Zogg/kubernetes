@@ -27,6 +27,7 @@ const (
 	StorageTypeUnset = ""
 	StorageTypeETCD2 = "etcd2"
 	StorageTypeETCD3 = "etcd3"
+	StorageTypeConsul = "consul"
 )
 
 // Config is configuration for creating a storage backend.
@@ -62,6 +63,8 @@ func Create(c Config) (storage.Interface, error) {
 		// - Honor "https" scheme to support secure connection in gRPC.
 		// - Support non-quorum read.
 		return newETCD3Storage(c)
+	case StorageTypeConsul:
+		return newConsulStorage(c)
 	default:
 		return nil, fmt.Errorf("unknown storage type: %s", c.Type)
 	}
