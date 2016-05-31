@@ -55,5 +55,5 @@ func newETCD3RawStorage(c Config) (generic.InterfaceRaw, error) {
 		return nil, err
 	}
 	etcd3.StartCompactor(context.Background(), client)
-	return etcd3.New(client, c.Codec, c.Prefix), nil
+	return etcd3.NewGenericRaw(client, c.Codec, c.Prefix), nil
 }

@@ -17,12 +17,12 @@ limitations under the License.
 package storage
 
 import (
-	"time"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage/generic"
 	"k8s.io/kubernetes/pkg/types"
 	"k8s.io/kubernetes/pkg/watch"
+	"time"
 )
 
 // Versioner abstracts setting and retrieving metadata fields from database response
@@ -170,7 +170,7 @@ type Interface interface {
 type Config interface {
 	// Creates the Interface base on ConfigObject
 	NewStorage() (Interface, error)
-	
+
 	// Creates the raw-layer Interface based on ConfigObject
 	NewRawStorage() (generic.InterfaceRaw, error)
 

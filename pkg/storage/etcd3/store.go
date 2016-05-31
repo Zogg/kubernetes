@@ -355,7 +355,7 @@ func (s *store) getState(getResp *clientv3.GetResponse, key string, v reflect.Va
 	state := &objState{
 		obj:  reflect.New(v.Type()).Interface().(runtime.Object),
 		meta: &storage.ResponseMeta{},
-	}x
+	}
 	if len(getResp.Kvs) == 0 {
 		if !ignoreNotFound {
 			return nil, storage.NewKeyNotFoundError(key, 0)
@@ -471,8 +471,4 @@ func checkPreconditions(key string, preconditions *storage.Preconditions, out ru
 		return storage.NewInvalidObjError(key, errMsg)
 	}
 	return nil
-}
-
-func notFound(key string) clientv3.Cmp {
-	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
 }

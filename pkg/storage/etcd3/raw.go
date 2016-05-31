@@ -18,9 +18,7 @@ package etcd3
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"path"
 	"reflect"
 	"strings"
 
@@ -35,8 +33,8 @@ import (
 	"github.com/coreos/etcd/clientv3"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
-	"time"
 	"k8s.io/kubernetes/pkg/storage/generic"
+	"time"
 )
 
 type rawStore struct {
@@ -47,16 +45,38 @@ type rawStore struct {
 	watcher    *watcher
 }
 
-type elemForDecode struct {
-	data []byte
-	rev  uint64
-}
+func (s *rawStore) Create(ctx context.Context, key string, data []byte, raw *generic.RawObject, ttl uint64) error {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
 
-type objState struct {
-	obj  runtime.Object
-	meta *storage.ResponseMeta
-	rev  int64
-	data []byte
+	opts, err := s.ttlOpts(ctx, int64(ttl))
+	if err != nil {
+		return err
+	}
+
+	txnResp, err := s.client.KV.Txn(ctx).If(
+		notFound(key),
+	).Then(
+		clientv3.OpPut(key, string(data), opts...),
+	).Commit()
+	if err != nil {
+		return err
+	}
+	if !txnResp.Succeeded {
+		return storage.NewKeyExistsError(key, 0)
+	}
+
+	if raw != nil {
+		putResp := txnResp.Responses[0].GetResponsePut()
+		putResp.MarshalTo(raw.Data)
+		raw.Version = uint64(putResp.Header.Revision)
+
+		// TODO: Handle TTL
+		// raw.TTL = ...
+		return err
+	}
+	return nil
 }
 
 // New returns an etcd3 implementation of storage.Interface.
@@ -64,9 +84,14 @@ func NewRaw(c *clientv3.Client, codec runtime.Codec, prefix string) storage.Inte
 	return newRawStore(c, codec, prefix)
 }
 
-func newRawStore(c *clientv3.Client, codec runtime.Codec, prefix string) *store {
+func NewGenericRaw(c *clientv3.Client, codec runtime.Codec, prefix string) generic.InterfaceRaw {
+	return newRawStore(c, codec, prefix)
+}
+
+// FIXME
+func newRawStore(c *clientv3.Client, codec runtime.Codec, prefix string) *rawStore {
 	versioner := etcd.APIObjectVersioner{}
-	return &store{
+	return &rawStore{
 		client:     c,
 		versioner:  versioner,
 		codec:      codec,
@@ -117,52 +142,21 @@ func (s *rawStore) Get(ctx context.Context, key string, out runtime.Object, igno
 	return decode(s.codec, s.versioner, kv.Value, out, kv.ModRevision)
 }
 
-// Create implements generic.InterfaceRaw.Create.
-func(s *rawStore) Create(ctx context.Context, key string, data []byte, raw *generic.RawObject, ttl uint64) error {
-	opts, err := s.ttlOpts(ctx, int64(ttl))
+// Delete implements storage.Interface.Delete.
+func (s *rawStore) Delete(ctx context.Context, key string, raw *generic.RawObject, preconditions *storage.Preconditions) error {
+	v, err := conversion.EnforcePtr(raw)
 	if err != nil {
-		return err
-	}
-
-	txnResp, err := s.client.KV.Txn(ctx).If(
-		notFound(key),
-	).Then(
-		clientv3.OpPut(key, string(data), opts...),
-	).Commit()
-	if err != nil {
-		return err
-	}
-	if !txnResp.Succeeded {
-		return storage.NewKeyExistsError(key, 0)
-	}
-
-	if raw != nil {
-		putResp := txnResp.Responses[0].GetResponsePut()
-		putResp.MarshalTo(raw.Data)
-		raw.Version = putResp.Header.Revision
-
-		// TODO: Handle TTL
-		// raw.TTL = ...
-		return err
+		panic("unable to convert output object to pointer")
+		key = keyWithPrefix(s.pathPrefix, key)
+		if preconditions == nil {
+			return s.unconditionalDeleteRaw(ctx, key, raw)
+		}
+		return s.conditionalDeleteRaw(ctx, key, raw, v, preconditions)
 	}
 	return nil
 }
 
-// Delete implements storage.Interface.Delete.
-//func (s *rawStore) Delete(ctx context.Context, key string, out runtime.Object, precondtions *storage.Preconditions) error {
-func(s *rawStore) Delete(ctx context.Context, key string, raw *generic.RawObject, preconditions generic.RawFilterFunc) error {
-	/*v, err := conversion.EnforcePtr(out)
-	if err != nil {
-		panic("unable to convert output object to pointer")
-	}*/
-	key = keyWithPrefix(s.pathPrefix, key)
-	if preconditions == nil {
-		return s.unconditionalDelete(ctx, key, raw)
-	}
-	return s.conditionalDelete(ctx, key, out, v, preconditions)
-}
-
-func (s *rawStore) unconditionalDelete(ctx context.Context, key string, raw *generic.RawObject) error {
+func (s *rawStore) unconditionalDeleteRaw(ctx context.Context, key string, raw *generic.RawObject) error {
 	// We need to do get and delete in single transaction in order to
 	// know the value and revision before deleting it.
 	txnResp, err := s.client.KV.Txn(ctx).If().Then(
@@ -178,12 +172,12 @@ func (s *rawStore) unconditionalDelete(ctx context.Context, key string, raw *gen
 	}
 
 	kv := getResp.Kvs[0]
-	raw.Version = kv.ModRevision
+	raw.Version = uint64(kv.ModRevision)
 	_, err = kv.MarshalTo(raw.Data)
 	return err
 }
 
-func (s *rawStore) conditionalDelete(ctx context.Context, key string, out runtime.Object, v reflect.Value, preconditions *generic.RawFilterFunc) error {
+func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *generic.RawObject, v reflect.Value, preconditions *storage.Preconditions) error {
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
 		return err
@@ -193,7 +187,7 @@ func (s *rawStore) conditionalDelete(ctx context.Context, key string, out runtim
 		if err != nil {
 			return err
 		}
-		if err := checkPreconditions(key, precondtions, origState.obj); err != nil {
+		if err := checkPreconditionsRaw(key, preconditions, origState.obj); err != nil {
 			return err
 		}
 		txnResp, err := s.client.KV.Txn(ctx).If(
@@ -415,50 +409,11 @@ func (s *rawStore) ttlOpts(ctx context.Context, ttl int64) ([]clientv3.OpOption,
 	return []clientv3.OpOption{clientv3.WithLease(clientv3.LeaseID(lcr.ID))}, nil
 }
 
-func keyWithPrefix(prefix, key string) string {
-	if strings.HasPrefix(key, prefix) {
-		return key
-	}
-	return path.Join(prefix, key)
+func notFound(key string) clientv3.Cmp {
+	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
 }
 
-// decode decodes value of bytes into object. It will also set the object resource version to rev.
-// On success, objPtr would be set to the object.
-func decode(codec runtime.Codec, versioner storage.Versioner, value []byte, objPtr runtime.Object, rev int64) error {
-	if _, err := conversion.EnforcePtr(objPtr); err != nil {
-		panic("unable to convert output object to pointer")
-	}
-	_, _, err := codec.Decode(value, nil, objPtr)
-	if err != nil {
-		return err
-	}
-	// being unable to set the version does not prevent the object from being extracted
-	versioner.UpdateObject(objPtr, nil, uint64(rev))
-	return nil
-}
-
-// decodeList decodes a list of values into a list of objects, with resource version set to corresponding rev.
-// On success, ListPtr would be set to the list of objects.
-func decodeList(elems []*elemForDecode, filter storage.FilterFunc, ListPtr interface{}, codec runtime.Codec, versioner storage.Versioner) error {
-	v, err := conversion.EnforcePtr(ListPtr)
-	if err != nil || v.Kind() != reflect.Slice {
-		panic("need ptr to slice")
-	}
-	for _, elem := range elems {
-		obj, _, err := codec.Decode(elem.data, nil, reflect.New(v.Type().Elem()).Interface().(runtime.Object))
-		if err != nil {
-			return err
-		}
-		// being unable to set the version does not prevent the object from being extracted
-		versioner.UpdateObject(obj, nil, elem.rev)
-		if filter(obj) {
-			v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
-		}
-	}
-	return nil
-}
-
-func checkPreconditions(key string, preconditions *storage.Preconditions, out runtime.Object) error {
+func checkPreconditionsRaw(key string, preconditions *storage.Preconditions, out runtime.Object) error {
 	if preconditions == nil {
 		return nil
 	}
@@ -471,8 +426,4 @@ func checkPreconditions(key string, preconditions *storage.Preconditions, out ru
 		return storage.NewInvalidObjError(key, errMsg)
 	}
 	return nil
-}
-
-func notFound(key string) clientv3.Cmp {
-	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
 }
