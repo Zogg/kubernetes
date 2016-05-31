@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-  
-    //"k8s.io/kubernetes/pkg/api"
+
+	//"k8s.io/kubernetes/pkg/api"
 	//"k8s.io/kubernetes/pkg/api/meta"
 	//"k8s.io/kubernetes/pkg/conversion"
 	"k8s.io/kubernetes/pkg/storage"
@@ -18,18 +18,23 @@ import (
 	//"k8s.io/kubernetes/pkg/storage/etcd" // for the purpose of APIObjectVersioner
 	"k8s.io/kubernetes/pkg/util"
 	//"k8s.io/kubernetes/pkg/watch"
-  
+
 	"github.com/golang/glog"
 	consulapi "github.com/hashicorp/consul/api"
 	"golang.org/x/net/context"
 )
 
-const DefaultWaitTimeout = time.Duration( 10 * time.Second )
+const DefaultWaitTimeout = time.Duration(10 * time.Second)
 
 type ConsulKvStorage struct {
-	ConsulKv    consulapi.KV
-	ServerList  []string
+	ConsulKv   consulapi.KV
+	ServerList []string
+
 	WaitTimeout time.Duration
+}
+
+type ConsulKvStorageConfig struct {
+	// TBD
 }
 
 func (s *ConsulKvStorage) Backends(ctx context.Context) []string {
@@ -42,20 +47,20 @@ func (s *ConsulKvStorage) Create(ctx context.Context, key string, data []byte, o
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
+	key = strings.TrimLeft(key, "/")
 	// TODO: metrics and stuff
 	// startTime := time.Now()
 	kv := &consulapi.KVPair{
-		Key:            key,
-		Value:          data,
-		ModifyIndex:    0,    // explicitly set to indicate Create-Only behavior
+		Key:         key,
+		Value:       data,
+		ModifyIndex: 0, // explicitly set to indicate Create-Only behavior
 		// TODO: TTL, if and when this functionality becomes available
 	}
 	succeeded, _, err := s.ConsulKv.CAS_v2(kv, nil)
 	// metrics.RecordStuff
 	trace.Step("Object created")
 	if err != nil {
-		return toStorageErr( err, key, 0 )
+		return toStorageErr(err, key, 0)
 	}
 	if !succeeded {
 		return storage.NewKeyExistsError(key, 0)
@@ -76,22 +81,22 @@ func (s *ConsulKvStorage) Set(ctx context.Context, key string, raw *generic.RawO
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
+	key = strings.TrimLeft(key, "/")
 
 	kv := consulapi.KVPair{
 		Key:         key,
 		ModifyIndex: raw.Version,
 		Value:       raw.Data,
 	}
-	
+
 	// Create and CAS are the same operation distinguished by
 	// the same distinguishing value here - ModifyIndex == 0
 	success, _, err := s.ConsulKv.CAS_v2(&kv, nil)
-	
+
 	if success {
-	raw.Version = kv.ModifyIndex
+		raw.Version = kv.ModifyIndex
 	}
-	
+
 	return success, toStorageErr(err, key, 0)
 }
 
@@ -99,8 +104,8 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, rawOut *generi
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
-	
+	key = strings.TrimLeft(key, "/")
+
 	// kv declared outside of the spin-loop so that we can decode subsequent successful Gets
 	// in the event that another client deletes our key before we do.. this value is possibly
 	// lacking certified freshness
@@ -110,22 +115,22 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, rawOut *generi
 	// TODO: perhaps a timeout or spincount would be wise here
 	for {
 		// empty QueryOptions is explicitly setting AllowStale to false
-		kv, _, err := s.ConsulKv.Get( key, &consulapi.QueryOptions{} )
+		kv, _, err := s.ConsulKv.Get(key, &consulapi.QueryOptions{})
 		if err != nil {
 			return toStorageErr(err, key, 0)
 		}
 		if kv == nil {
 			break
 		}
-		
+
 		kvPrev = kv
-		
+
 		if preconditions != nil {
 			rawForTest := generic.RawObject{
-				Data:       kv.Value,
-				Version:    kv.ModifyIndex,
+				Data:    kv.Value,
+				Version: kv.ModifyIndex,
 			}
-			accepted, err := preconditions( &rawForTest )
+			accepted, err := preconditions(&rawForTest)
 			if err != nil {
 				return err
 			}
@@ -133,7 +138,7 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, rawOut *generi
 				return storage.NewResourceVersionConflictsError(key, 0)
 			}
 		}
-		succeeded, _, err = s.ConsulKv.DeleteCAS(kv,nil)
+		succeeded, _, err = s.ConsulKv.DeleteCAS(kv, nil)
 		if err != nil {
 			//if isErrNotFound( err ) {
 			//	// if we have previously succeeded in getting a value, but not deleting it
@@ -158,28 +163,28 @@ func (s *ConsulKvStorage) Delete(ctx context.Context, key string, rawOut *generi
 }
 
 func (s *ConsulKvStorage) Watch(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
-	key = strings.TrimLeft( key, "/" )
-	version, err := strconv.ParseUint( resourceVersion, 10, 64 )
+	key = strings.TrimLeft(key, "/")
+	version, err := strconv.ParseUint(resourceVersion, 10, 64)
 	if err != nil {
 		return nil, err
 	}
-	return s.newConsulWatch( key, version, false )
+	return s.newConsulWatch(key, version, false)
 }
 
 func (s *ConsulKvStorage) WatchList(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
-	key = strings.TrimLeft( key, "/" )
-	version, err := strconv.ParseUint( resourceVersion, 10, 64 )
+	key = strings.TrimLeft(key, "/")
+	version, err := strconv.ParseUint(resourceVersion, 10, 64)
 	if err != nil {
 		return nil, err
 	}
-	return s.newConsulWatch( key, version, true )
+	return s.newConsulWatch(key, version, true)
 }
 
 func (s *ConsulKvStorage) Get(ctx context.Context, key string, raw *generic.RawObject) error {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
+	key = strings.TrimLeft(key, "/")
 	kv, _, err := s.ConsulKv.Get(key, nil)
 	if err != nil {
 		return toStorageErr(err, key, 0)
@@ -202,17 +207,17 @@ func (s *ConsulKvStorage) GetToList(ctx context.Context, key string, rawList *[]
 		glog.Errorf("Context is nil")
 	}
 	// ensure that our path is terminated with a / to make it a directory
-	key = strings.TrimLeft( key, "/" )
-	if !strings.HasSuffix( key, "/" ) {
+	key = strings.TrimLeft(key, "/")
+	if !strings.HasSuffix(key, "/") {
 		key = key + "/"
 	}
-	
+
 	// create a filter that will omit deep finds
 	myLastIndex := strings.LastIndex(key, "/")
 	fnKeyFilter := func(key string) bool {
 		return myLastIndex == strings.LastIndex(key, "/")
 	}
-	
+
 	return s.listInternal("GetToList ", key, fnKeyFilter, rawList)
 }
 
@@ -220,34 +225,34 @@ func (s *ConsulKvStorage) List(ctx context.Context, key string, resourceVersion 
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	key = strings.TrimLeft( key, "/" )
+	key = strings.TrimLeft(key, "/")
 	fnKeyFilter := func(keyIn string) bool {
 		return keyIn != key
 	}
 	return s.listInternal("List ", key, fnKeyFilter, rawList)
 }
 
-func (s *ConsulKvStorage) listInternal(fnName string, key string, keyFilter keyFilterFunc, rawList *[]generic.RawObject) (uint64, error) { 
+func (s *ConsulKvStorage) listInternal(fnName string, key string, keyFilter keyFilterFunc, rawList *[]generic.RawObject) (uint64, error) {
 	trace := util.NewTrace(fnName + key)
 	defer trace.LogIfLong(time.Second)
 
-	kvlist, _, err := s.ConsulKv.List(key, nil);
-	
+	kvlist, _, err := s.ConsulKv.List(key, nil)
+
 	// TODO: record metrics
 	if err != nil {
 		return 0, toStorageErr(err, key, 0)
 	}
-	
+
 	// unlike etcd, reads are not rafted, so they don't get an index of their own
 	// so in order to version the resulting list consistantly, we apply the index
-	// of the most recent member 
+	// of the most recent member
 	maxIndex := uint64(0)
-	
+
 	for _, kv := range kvlist {
 		if kv != nil && keyFilter(kv.Key) {
 			rawVal := generic.RawObject{
-				Data:       kv.Value,
-				Version:    kv.ModifyIndex,
+				Data:    kv.Value,
+				Version: kv.ModifyIndex,
 			}
 			*rawList = append(*rawList, rawVal)
 			if maxIndex < kv.ModifyIndex {

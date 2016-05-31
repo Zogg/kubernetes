@@ -33,7 +33,7 @@ import (
 type APIServer struct {
 	*genericapiserver.ServerRunOptions
 	AllowPrivileged             bool
-	ConsulConfig               consulstorage.ConsulKvStorageConfig
+	ConsulConfig                consulstorage.ConsulKvStorageConfig
 	EventTTL                    time.Duration
 	KubeletConfig               kubeletclient.KubeletClientConfig
 	MaxConnectionBytesPerSec    int64

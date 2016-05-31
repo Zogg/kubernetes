@@ -2,20 +2,20 @@ package etcd
 
 import (
 	"time"
-	
+
 	"k8s.io/kubernetes/pkg/storage"
 	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
 	"k8s.io/kubernetes/pkg/storage/generic"
-	
+
 	etcd "github.com/coreos/etcd/client"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 )
 
 type etcdLowLevel struct {
-	etcdMembersAPI  etcd.MembersAPI
-	etcdKeysAPI     etcd.KeysAPI
-	quorum          bool
+	etcdMembersAPI etcd.MembersAPI
+	etcdKeysAPI    etcd.KeysAPI
+	quorum         bool
 }
 
 func NewEtcdRawStorage(client etcd.Client, quorum bool) generic.InterfaceRaw {
@@ -26,7 +26,7 @@ func NewEtcdRawStorage(client etcd.Client, quorum bool) generic.InterfaceRaw {
 	}
 }
 
-func(s *etcdLowLevel) Backends(ctx context.Context) []string {
+func (s *etcdLowLevel) Backends(ctx context.Context) []string {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
@@ -41,8 +41,8 @@ func(s *etcdLowLevel) Backends(ctx context.Context) []string {
 	}
 	return mlist
 }
-	
-func(s *etcdLowLevel) Create(ctx context.Context, key string, data []byte, raw *generic.RawObject, ttl uint64) error {
+
+func (s *etcdLowLevel) Create(ctx context.Context, key string, data []byte, raw *generic.RawObject, ttl uint64) error {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
@@ -57,10 +57,10 @@ func(s *etcdLowLevel) Create(ctx context.Context, key string, data []byte, raw *
 	copyResponse(response, raw, false)
 	return nil
 }
-	
-	// Delete removes the specified key and returns the value that existed at that spot.
-	// If key didn't exist, it will return NotFound storage error.
-func(s *etcdLowLevel) Delete(ctx context.Context, key string, raw *generic.RawObject, preconditions generic.RawFilterFunc) error {
+
+// Delete removes the specified key and returns the value that existed at that spot.
+// If key didn't exist, it will return NotFound storage error.
+func (s *etcdLowLevel) Delete(ctx context.Context, key string, raw *generic.RawObject, preconditions generic.RawFilterFunc) error {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
@@ -72,7 +72,7 @@ func(s *etcdLowLevel) Delete(ctx context.Context, key string, raw *generic.RawOb
 		}
 		return toStorageErr(err, key, 0)
 	}
-	
+
 	var lastRead generic.RawObject
 	for {
 		opts := &etcd.GetOptions{
@@ -80,7 +80,7 @@ func(s *etcdLowLevel) Delete(ctx context.Context, key string, raw *generic.RawOb
 		}
 
 		response, err := s.etcdKeysAPI.Get(ctx, key, opts)
-		
+
 		copyResponse(response, &lastRead, false)
 		if err != nil {
 			if raw != nil {
@@ -88,7 +88,7 @@ func(s *etcdLowLevel) Delete(ctx context.Context, key string, raw *generic.RawOb
 			}
 			return toStorageErr(err, key, 0)
 		}
-		succeeded, err := preconditions( &lastRead )
+		succeeded, err := preconditions(&lastRead)
 		if err != nil {
 			return err
 		}
@@ -109,12 +109,12 @@ func(s *etcdLowLevel) Delete(ctx context.Context, key string, raw *generic.RawOb
 	}
 }
 
-	// Watch begins watching the specified key. Events are decoded into API objects,
-	// and any items passing 'filter' are sent down to returned watch.Interface.
-	// resourceVersion may be used to specify what version to begin watching,
-	// which should be the current resourceVersion, and no longer rv+1
-	// (e.g. reconnecting without missing any updates).
-func(s *etcdLowLevel) Watch(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
+// Watch begins watching the specified key. Events are decoded into API objects,
+// and any items passing 'filter' are sent down to returned watch.Interface.
+// resourceVersion may be used to specify what version to begin watching,
+// which should be the current resourceVersion, and no longer rv+1
+// (e.g. reconnecting without missing any updates).
+func (s *etcdLowLevel) Watch(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
@@ -127,12 +127,12 @@ func(s *etcdLowLevel) Watch(ctx context.Context, key string, resourceVersion str
 	return ret, nil
 }
 
-	// WatchList begins watching the specified key's items. Items are decoded into API
-	// objects and any item passing 'filter' are sent down to returned watch.Interface.
-	// resourceVersion may be used to specify what version to begin watching,
-	// which should be the current resourceVersion, and no longer rv+1
-	// (e.g. reconnecting without missing any updates).
-func(s *etcdLowLevel) WatchList(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
+// WatchList begins watching the specified key's items. Items are decoded into API
+// objects and any item passing 'filter' are sent down to returned watch.Interface.
+// resourceVersion may be used to specify what version to begin watching,
+// which should be the current resourceVersion, and no longer rv+1
+// (e.g. reconnecting without missing any updates).
+func (s *etcdLowLevel) WatchList(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
@@ -145,14 +145,14 @@ func(s *etcdLowLevel) WatchList(ctx context.Context, key string, resourceVersion
 	return ret, nil
 }
 
-	// Get unmarshals json found at key into objPtr. On a not found error, will either
-	// return a zero object of the requested type, or an error, depending on ignoreNotFound.
-	// Treats empty responses and nil response nodes exactly like a not found error.
-func(s *etcdLowLevel) Get(ctx context.Context, key string, raw *generic.RawObject) error {
+// Get unmarshals json found at key into objPtr. On a not found error, will either
+// return a zero object of the requested type, or an error, depending on ignoreNotFound.
+// Treats empty responses and nil response nodes exactly like a not found error.
+func (s *etcdLowLevel) Get(ctx context.Context, key string, raw *generic.RawObject) error {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	
+
 	opts := &etcd.GetOptions{
 		Quorum: s.quorum,
 	}
@@ -165,7 +165,7 @@ func(s *etcdLowLevel) Get(ctx context.Context, key string, raw *generic.RawObjec
 	return nil
 }
 
-func(s *etcdLowLevel) Set(ctx context.Context, key string, raw *generic.RawObject) (bool, error) {
+func (s *etcdLowLevel) Set(ctx context.Context, key string, raw *generic.RawObject) (bool, error) {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
@@ -190,13 +190,13 @@ func(s *etcdLowLevel) Set(ctx context.Context, key string, raw *generic.RawObjec
 	return true, nil
 }
 
-	// GetToList unmarshals json found at key and opaque it into *List api object
-	// (an object that satisfies the runtime.IsList definition).
-func(s *etcdLowLevel) GetToList(ctx context.Context, key string, rawList *[]generic.RawObject) (uint64, error) {
+// GetToList unmarshals json found at key and opaque it into *List api object
+// (an object that satisfies the runtime.IsList definition).
+func (s *etcdLowLevel) GetToList(ctx context.Context, key string, rawList *[]generic.RawObject) (uint64, error) {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	
+
 	opts := &etcd.GetOptions{
 		Quorum: s.quorum,
 	}
@@ -217,11 +217,11 @@ func(s *etcdLowLevel) GetToList(ctx context.Context, key string, rawList *[]gene
 	return index, nil
 }
 
-func(s *etcdLowLevel) List(ctx context.Context, key string, resourceVersion string, rawList *[]generic.RawObject) (uint64, error) {
+func (s *etcdLowLevel) List(ctx context.Context, key string, resourceVersion string, rawList *[]generic.RawObject) (uint64, error) {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
-	
+
 	opts := &etcd.GetOptions{
 		Recursive: true,
 		Sort:      true,
@@ -239,7 +239,7 @@ func(s *etcdLowLevel) List(ctx context.Context, key string, resourceVersion stri
 		}
 		return index, toStorageErr(err, key, 0)
 	}
-	
+
 	if response == nil || response.Node == nil || response.Node.Nodes == nil {
 		return index, nil
 	}
@@ -289,7 +289,7 @@ func copyNode(node *etcd.Node, raw *generic.RawObject) {
 	if node.Expiration == nil {
 		raw.TTL = 0
 	} else {
-		ttl := int64(node.Expiration.Sub(time.Now().UTC()) / time.Second);
+		ttl := int64(node.Expiration.Sub(time.Now().UTC()) / time.Second)
 		if ttl == 0 {
 			ttl = 1
 		}
