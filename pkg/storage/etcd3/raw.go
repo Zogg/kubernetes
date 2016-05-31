@@ -31,6 +31,7 @@ import (
 	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/coreos/etcd/clientv3"
+	"github.com/docker/docker/pkg/discovery/kv"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/storage/generic"
@@ -144,7 +145,7 @@ func (s *rawStore) Delete(ctx context.Context, key string, raw *generic.RawObjec
 		if preconditions == nil {
 			return s.unconditionalDeleteRaw(ctx, key, raw)
 		}
-		return s.conditionalDeleteRaw(ctx, key, raw, v, preconditions)
+		return s.conditionalDeleteRaw(ctx, key, raw, v, &preconditions)
 	}
 	return nil
 }
@@ -170,7 +171,9 @@ func (s *rawStore) unconditionalDeleteRaw(ctx context.Context, key string, raw *
 	return err
 }
 
-func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *generic.RawObject, v reflect.Value, preconditions *generic.RawFilterFunc) error {
+// Preconditions is unused because this function relies on etcd3 transactions to achieve the same behavior
+func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *generic.RawObject, v reflect.Value, preconditions generic.RawFilterFunc) error {
+
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
 		return err
@@ -180,9 +183,7 @@ func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *ge
 		if err != nil {
 			return err
 		}
-		if err := checkPreconditionsRaw(key, preconditions, origState.obj); err != nil {
-			return err
-		}
+
 		txnResp, err := s.client.KV.Txn(ctx).If(
 			clientv3.Compare(clientv3.ModRevision(key), "=", origState.rev),
 		).Then(
@@ -198,12 +199,15 @@ func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *ge
 			glog.V(4).Infof("deletion of %s failed because of a conflict, going to retry", key)
 			continue
 		}
-		return decode(s.codec, s.versioner, origState.data, out, origState.rev)
+		resp := txnResp.Responses[0].GetResponseDeleteRange()
+		out.Version = uint64(resp.Header.Revision)
+		_, err = resp.MarshalTo(out.Data)
+		return nil
 	}
 }
 
 // GuaranteedUpdate implements storage.Interface.GuaranteedUpdate.
-func (s *rawStore) GuaranteedUpdate(ctx context.Context, key string, out runtime.Object, ignoreNotFound bool, precondtions *storage.Preconditions, tryUpdate storage.UpdateFunc) error {
+/*func (s *rawStore) GuaranteedUpdate(ctx context.Context, key string, out runtime.Object, ignoreNotFound bool, precondtions *storage.Preconditions, tryUpdate storage.UpdateFunc) error {
 	v, err := conversion.EnforcePtr(out)
 	if err != nil {
 		panic("unable to convert output object to pointer")
@@ -260,15 +264,10 @@ func (s *rawStore) GuaranteedUpdate(ctx context.Context, key string, out runtime
 		return decode(s.codec, s.versioner, data, out, putResp.Header.Revision)
 	}
 }
+*/
 
 // GetToList implements storage.Interface.GetToList.
-func (s *rawStore) GetToList(ctx context.Context, key string, filter storage.FilterFunc, listObj runtime.Object) error {
-	listPtr, err := meta.GetItemsPtr(listObj)
-	if err != nil {
-		return err
-	}
-	key = keyWithPrefix(s.pathPrefix, key)
-
+func (s *rawStore) GetToList(ctx context.Context, key string, rawList *[]generic.RawObject) (uint64, error) {
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
 		return err
@@ -276,24 +275,22 @@ func (s *rawStore) GetToList(ctx context.Context, key string, filter storage.Fil
 	if len(getResp.Kvs) == 0 {
 		return nil
 	}
-	elems := []*elemForDecode{{
-		data: getResp.Kvs[0].Value,
-		rev:  uint64(getResp.Kvs[0].ModRevision),
-	}}
-	if err := decodeList(elems, filter, listPtr, s.codec, s.versioner); err != nil {
-		return err
+
+	var rawObj generic.RawObject
+	resp := getResp.Kvs[0]
+	resp.MarshalTo(rawObj.Data)
+	rawObj.Version = resp.ModRevision
+	// TODO: Handle TTL?
+	if len(rawObj.Data) > 0 {
+		*rawList = append(*rawList, rawObj)
 	}
-	// update version with cluster level revision
-	return s.versioner.UpdateList(listObj, uint64(getResp.Header.Revision))
+
+	// TODO: what is the uint64 retval? NOT SURE ABOU THIS
+	return resp.Version, nil
 }
 
 // List implements storage.Interface.List.
-func (s *rawStore) List(ctx context.Context, key, resourceVersion string, filter storage.FilterFunc, listObj runtime.Object) error {
-	listPtr, err := meta.GetItemsPtr(listObj)
-	if err != nil {
-		return err
-	}
-	key = keyWithPrefix(s.pathPrefix, key)
+func (s *rawStore) List(ctx context.Context, key string, resourceVersion string, rawList *[]generic.RawObject) (uint64, error) {
 	// We need to make sure the key ended with "/" so that we only get children "directories".
 	// e.g. if we have key "/a", "/a/b", "/ab", getting keys with prefix "/a" will return all three,
 	// while with prefix "/a/" will return only "/a/b" which is the correct answer.
@@ -302,25 +299,35 @@ func (s *rawStore) List(ctx context.Context, key, resourceVersion string, filter
 	}
 	getResp, err := s.client.KV.Get(ctx, key, clientv3.WithPrefix())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	elems := make([]*elemForDecode, len(getResp.Kvs))
+	elems := make([]*generic.RawObject, len(getResp.Kvs))
 	for i, kv := range getResp.Kvs {
-		elems[i] = &elemForDecode{
-			data: kv.Value,
-			rev:  uint64(kv.ModRevision),
-		}
+		elems[i] = generic.RawObject{}
+		kv.MarshalTo(elems[i].Data)
+		elems[i].Version = kv.ModRevision
+		// elems[i].TTL = kv. // TODO: handle TTL
+		// TODO: handle UID?
 	}
-	if err := decodeList(elems, filter, listPtr, s.codec, s.versioner); err != nil {
-		return err
-	}
-	// update version with cluster level revision
-	return s.versioner.UpdateList(listObj, uint64(getResp.Header.Revision))
+	rawList = elems
+
+	return uint64(getResp.Header.Revision), nil
 }
 
 // Watch implements storage.Interface.Watch.
-func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
+func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string) (InterfaceRawWatch, error) {
+//func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	watchRV, err := storage.ParseWatchResourceVersion(resourceVersion)
+	if err != nil {
+		return nil, err
+	}
+	ret := newEtcd3WatcherRaw(false, s.quorum, nil)
+	go ret.etcdWatch(ctx, s.etcdKeysAPI, key, watchRV)
+
 	return s.watch(ctx, key, resourceVersion, filter, false)
 }
 
@@ -404,19 +411,4 @@ func (s *rawStore) ttlOpts(ctx context.Context, ttl int64) ([]clientv3.OpOption,
 
 func notFound(key string) clientv3.Cmp {
 	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
-}
-
-func checkPreconditionsRaw(key string, preconditions *storage.Preconditions, out runtime.Object) error {
-	if preconditions == nil {
-		return nil
-	}
-	objMeta, err := api.ObjectMetaFor(out)
-	if err != nil {
-		return storage.NewInternalErrorf("can't enforce preconditions %v on un-introspectable object %v, got error: %v", *preconditions, out, err)
-	}
-	if preconditions.UID != nil && *preconditions.UID != objMeta.UID {
-		errMsg := fmt.Sprintf("Precondition failed: UID in precondition: %v, UID in object meta: %v", preconditions.UID, objMeta.UID)
-		return storage.NewInvalidObjError(key, errMsg)
-	}
-	return nil
 }
