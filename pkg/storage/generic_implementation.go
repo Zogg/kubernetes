@@ -55,19 +55,20 @@ func (s *genericWrapper) Versioner() Versioner {
 	return s.versioner
 }
 
-func (s *genericWrapper) Create(ctx context.Context, key string, data []byte, out runtime.Object, ttl uint64) error {
-	trace := util.NewTrace("GenericWrapper::Create " + getTypeName(data))
+// FIXME
+func (s *genericWrapper) Create(ctx context.Context, key string, obj runtime.Object, out runtime.Object, ttl uint64) error {
+	trace := util.NewTrace("GenericWrapper::Create " + getTypeName(obj))
 	defer trace.LogIfLong(250 * time.Millisecond)
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
 	key = s.prefixKey(key)
-	data, err := runtime.Encode(s.codec, data)
+	data, err := runtime.Encode(s.codec, obj)
 	trace.Step("Object encoded")
 	if err != nil {
 		return err
 	}
-	if version, err := s.versioner.ObjectResourceVersion(data); err == nil && version != 0 {
+	if version, err := s.versioner.ObjectResourceVersion(obj); err == nil && version != 0 {
 		return errors.New("resourceVersion may not be set on objects to be created")
 	}
 	trace.Step("Version checked")

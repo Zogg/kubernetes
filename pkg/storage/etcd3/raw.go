@@ -80,10 +80,6 @@ func (s *rawStore) Create(ctx context.Context, key string, data []byte, raw *gen
 }
 
 // New returns an etcd3 implementation of storage.Interface.
-func NewRaw(c *clientv3.Client, codec runtime.Codec, prefix string) storage.Interface {
-	return newRawStore(c, codec, prefix)
-}
-
 func NewGenericRaw(c *clientv3.Client, codec runtime.Codec, prefix string) generic.InterfaceRaw {
 	return newRawStore(c, codec, prefix)
 }
@@ -125,7 +121,7 @@ func (s *rawStore) Versioner() storage.Versioner {
 }
 
 // Get implements storage.Interface.Get.
-func (s *rawStore) Get(ctx context.Context, key string, out runtime.Object, ignoreNotFound bool) error {
+func (s *rawStore) Get(ctx context.Context, key string, raw *generic.RawObject) error {
 	key = keyWithPrefix(s.pathPrefix, key)
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
@@ -133,17 +129,14 @@ func (s *rawStore) Get(ctx context.Context, key string, out runtime.Object, igno
 	}
 
 	if len(getResp.Kvs) == 0 {
-		if ignoreNotFound {
-			return runtime.SetZeroValue(out)
-		}
 		return storage.NewKeyNotFoundError(key, 0)
 	}
 	kv := getResp.Kvs[0]
-	return decode(s.codec, s.versioner, kv.Value, out, kv.ModRevision)
+	return nil
 }
 
 // Delete implements storage.Interface.Delete.
-func (s *rawStore) Delete(ctx context.Context, key string, raw *generic.RawObject, preconditions *storage.Preconditions) error {
+func (s *rawStore) Delete(ctx context.Context, key string, raw *generic.RawObject, preconditions generic.RawFilterFunc) error {
 	v, err := conversion.EnforcePtr(raw)
 	if err != nil {
 		panic("unable to convert output object to pointer")
@@ -177,7 +170,7 @@ func (s *rawStore) unconditionalDeleteRaw(ctx context.Context, key string, raw *
 	return err
 }
 
-func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *generic.RawObject, v reflect.Value, preconditions *storage.Preconditions) error {
+func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *generic.RawObject, v reflect.Value, preconditions *generic.RawFilterFunc) error {
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
 		return err
