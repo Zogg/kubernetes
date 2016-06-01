@@ -31,7 +31,6 @@ import (
 	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/coreos/etcd/clientv3"
-	"github.com/docker/docker/pkg/discovery/kv"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/storage/generic"
@@ -317,7 +316,7 @@ func (s *rawStore) List(ctx context.Context, key string, resourceVersion string,
 
 // Watch implements storage.Interface.Watch.
 func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string) (InterfaceRawWatch, error) {
-//func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
+	//func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
