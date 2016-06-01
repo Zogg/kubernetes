@@ -269,23 +269,23 @@ func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *ge
 func (s *rawStore) GetToList(ctx context.Context, key string, rawList *[]generic.RawObject) (uint64, error) {
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if len(getResp.Kvs) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	var rawObj generic.RawObject
 	resp := getResp.Kvs[0]
 	resp.MarshalTo(rawObj.Data)
-	rawObj.Version = resp.ModRevision
+	rawObj.Version = uint64(resp.ModRevision)
 	// TODO: Handle TTL?
 	if len(rawObj.Data) > 0 {
 		*rawList = append(*rawList, rawObj)
 	}
 
 	// TODO: what is the uint64 retval? NOT SURE ABOU THIS
-	return resp.Version, nil
+	return uint64(resp.Version), nil
 }
 
 // List implements storage.Interface.List.
@@ -298,7 +298,7 @@ func (s *rawStore) List(ctx context.Context, key string, resourceVersion string,
 	}
 	getResp, err := s.client.KV.Get(ctx, key, clientv3.WithPrefix())
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	elems := make([]*generic.RawObject, len(getResp.Kvs))
@@ -315,8 +315,7 @@ func (s *rawStore) List(ctx context.Context, key string, resourceVersion string,
 }
 
 // Watch implements storage.Interface.Watch.
-func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string) (InterfaceRawWatch, error) {
-	//func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
+func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string) (watch.Interface, error) {
 	if ctx == nil {
 		glog.Errorf("Context is nil")
 	}
@@ -410,4 +409,29 @@ func (s *rawStore) ttlOpts(ctx context.Context, ttl int64) ([]clientv3.OpOption,
 
 func notFound(key string) clientv3.Cmp {
 	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
+}
+
+func Set(ctx context.Context, key string, raw *generic.RawObject) (bool, error) {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	if raw == nil {
+		return false, nil // maybe this should be an error.. a well behaved client should ask us to Set nothing
+	}
+	opts := etcd.SetOptions{
+		PrevIndex: raw.Version,
+		TTL:       time.Duration(raw.TTL) * time.Second,
+	}
+	if raw.Version == 0 {
+		opts.PrevExist = etcd.PrevNoExist
+	}
+	response, err := s.etcdKeysAPI.Set(ctx, key, string(raw.Data), &opts)
+	copyResponse(response, raw, false)
+	if err != nil {
+		if etcdutil.IsEtcdTestFailed(err) || (raw.Version == 0 && etcdutil.IsEtcdNodeExist(err)) {
+			return false, nil
+		}
+		return false, toStorageErr(err, key, 0)
+	}
+	return true, nil
 }
