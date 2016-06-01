@@ -25,11 +25,11 @@ import (
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/etcd"
 
+	"fmt"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/storage/generic"
-	"fmt"
 )
 
 type rawStore struct {
@@ -311,7 +311,7 @@ func (s *rawStore) List(ctx context.Context, key string, resourceVersion string,
 
 // Watch implements storage.Interface.Watch.
 func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
-//func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
+	//func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
 	return s.watch(ctx, key, resourceVersion, false)
 }
 
@@ -358,7 +358,7 @@ func (s *rawStore) watch(ctx context.Context, key string, rv string, list bool) 
 		return nil, err
 	}
 	key = keyWithPrefix(s.pathPrefix, key)
-	ret := newEtcd3WatcherRaw(list, s.quorum, nil)
+	ret := newEtcd3WatcherRaw(list, s.quorum)
 	go ret.etcdWatch(ctx, s.etcdKeysAPI, key, watchRV)
 	return ret, nil
 }
@@ -432,3 +432,16 @@ func notFound(key string) clientv3.Cmp {
 	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
 }
 
+func copyNode(node *clientv3.Node, raw *generic.RawObject) {
+	raw.Version = node.ModifiedIndex
+	raw.Data = []byte(node.Value)
+	if node.Expiration == nil {
+		raw.TTL = 0
+	} else {
+		ttl := int64(node.Expiration.Sub(time.Now().UTC()) / time.Second)
+		if ttl == 0 {
+			ttl = 1
+		}
+		raw.TTL = ttl
+	}
+}
