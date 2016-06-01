@@ -432,16 +432,13 @@ func notFound(key string) clientv3.Cmp {
 	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
 }
 
+/*
 func copyNode(node *clientv3.Node, raw *generic.RawObject) {
 	raw.Version = node.ModifiedIndex
 	raw.Data = []byte(node.Value)
 	if node.Expiration == nil {
 		raw.TTL = 0
-	} else {
-		ttl := int64(node.Expiration.Sub(time.Now().UTC()) / time.Second)
-		if ttl == 0 {
-			ttl = 1
-		}
-		raw.TTL = ttl
 	}
+	// TODO: Handle TTL
 }
+*/
