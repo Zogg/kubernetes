@@ -16,7 +16,7 @@ type etcd3WatcherRaw struct {
 // newEtcdWatcher returns a new etcdWatcher; if list is true, watch sub-nodes.
 // The versioner must be able to handle the objects that transform creates.
 
-func newEtcdWatcherRaw(list bool, quorum bool/*, include etcd.includeFunc*/) *etcd3WatcherRaw {
+func newEtcd3WatcherRaw(list bool, quorum bool/*, include etcd.includeFunc*/) *etcd3WatcherRaw {
 	w := &etcd3WatcherRaw{
 		outgoing:     make(chan generic.RawEvent),
 	}

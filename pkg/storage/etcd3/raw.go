@@ -17,24 +17,19 @@ limitations under the License.
 package etcd3
 
 import (
-	"bytes"
-	"fmt"
 	"reflect"
 	"strings"
 
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/conversion"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/etcd"
-	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/storage/generic"
-	"time"
+	"fmt"
 )
 
 type rawStore struct {
@@ -171,7 +166,7 @@ func (s *rawStore) unconditionalDeleteRaw(ctx context.Context, key string, raw *
 }
 
 // Preconditions is unused because this function relies on etcd3 transactions to achieve the same behavior
-func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *generic.RawObject, v reflect.Value, preconditions generic.RawFilterFunc) error {
+func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *generic.RawObject, v reflect.Value, preconditions *generic.RawFilterFunc) error {
 
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
@@ -269,22 +264,22 @@ func (s *rawStore) conditionalDeleteRaw(ctx context.Context, key string, out *ge
 func (s *rawStore) GetToList(ctx context.Context, key string, rawList *[]generic.RawObject) (uint64, error) {
 	getResp, err := s.client.KV.Get(ctx, key)
 	if err != nil {
-		return 0, err
+		return uint64(0), err
 	}
 	if len(getResp.Kvs) == 0 {
-		return 0, nil
+		return uint64(0), nil
 	}
 
 	var rawObj generic.RawObject
 	resp := getResp.Kvs[0]
 	resp.MarshalTo(rawObj.Data)
-	rawObj.Version = uint64(resp.ModRevision)
+	rawObj.Version = uint64(resp.Version)
 	// TODO: Handle TTL?
 	if len(rawObj.Data) > 0 {
 		*rawList = append(*rawList, rawObj)
 	}
 
-	// TODO: what is the uint64 retval? NOT SURE ABOU THIS
+	// TODO: what is the uint64 retval? NOT SURE ABOUT THIS
 	return uint64(resp.Version), nil
 }
 
@@ -301,46 +296,71 @@ func (s *rawStore) List(ctx context.Context, key string, resourceVersion string,
 		return 0, err
 	}
 
-	elems := make([]*generic.RawObject, len(getResp.Kvs))
+	elems := make([]generic.RawObject, len(getResp.Kvs))
 	for i, kv := range getResp.Kvs {
 		elems[i] = generic.RawObject{}
 		kv.MarshalTo(elems[i].Data)
-		elems[i].Version = kv.ModRevision
+		elems[i].Version = uint64(kv.Version)
 		// elems[i].TTL = kv. // TODO: handle TTL
 		// TODO: handle UID?
 	}
-	rawList = elems
+	rawList = &elems
 
 	return uint64(getResp.Header.Revision), nil
 }
 
 // Watch implements storage.Interface.Watch.
-func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string) (watch.Interface, error) {
-	if ctx == nil {
-		glog.Errorf("Context is nil")
-	}
-	watchRV, err := storage.ParseWatchResourceVersion(resourceVersion)
-	if err != nil {
-		return nil, err
-	}
-	ret := newEtcd3WatcherRaw(false, s.quorum, nil)
-	go ret.etcdWatch(ctx, s.etcdKeysAPI, key, watchRV)
-
-	return s.watch(ctx, key, resourceVersion, filter, false)
+func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
+//func (s *rawStore) Watch(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
+	return s.watch(ctx, key, resourceVersion, false)
 }
 
 // WatchList implements storage.Interface.WatchList.
-func (s *rawStore) WatchList(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
-	return s.watch(ctx, key, resourceVersion, filter, true)
+//func (s *rawStore) WatchList(ctx context.Context, key string, resourceVersion string, filter storage.FilterFunc) (watch.Interface, error) {
+func (s *rawStore) WatchList(ctx context.Context, key string, resourceVersion string) (generic.InterfaceRawWatch, error) {
+	return s.watch(ctx, key, resourceVersion, true)
 }
 
-func (s *rawStore) watch(ctx context.Context, key string, rv string, filter storage.FilterFunc, recursive bool) (watch.Interface, error) {
-	rev, err := storage.ParseWatchResourceVersion(rv)
+func (s *rawStore) Set(ctx context.Context, key string, raw *generic.RawObject) (bool, error) {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+
+	// TODO: Do I need to set TTL here?
+	opts, err := s.ttlOpts(ctx, int64(raw.TTL))
+	if err != nil {
+		return false, err
+	}
+
+	txnResp, err := s.client.KV.Txn(ctx).If().Then(
+		clientv3.OpPut(key, string(raw.Data), opts...),
+	).Commit()
+	if err != nil {
+		return false, err
+	}
+	if !txnResp.Succeeded {
+		return false, fmt.Errorf("Set() txn failed")
+	}
+
+	putResp := txnResp.Responses[0].GetResponsePut()
+	putResp.MarshalTo(raw.Data)
+	raw.Version = uint64(putResp.Header.Revision)
+	// TODO: TTL?
+	return true, nil
+}
+
+func (s *rawStore) watch(ctx context.Context, key string, rv string, list bool) (generic.InterfaceRawWatch, error) {
+	if ctx == nil {
+		glog.Errorf("Context is nil")
+	}
+	watchRV, err := storage.ParseWatchResourceVersion(rv)
 	if err != nil {
 		return nil, err
 	}
 	key = keyWithPrefix(s.pathPrefix, key)
-	return s.watcher.Watch(ctx, key, int64(rev), recursive, filter)
+	ret := newEtcd3WatcherRaw(list, s.quorum, nil)
+	go ret.etcdWatch(ctx, s.etcdKeysAPI, key, watchRV)
+	return ret, nil
 }
 
 func (s *rawStore) getState(getResp *clientv3.GetResponse, key string, v reflect.Value, ignoreNotFound bool) (*objState, error) {
@@ -366,7 +386,7 @@ func (s *rawStore) getState(getResp *clientv3.GetResponse, key string, v reflect
 	return state, nil
 }
 
-func (s *rawStore) updateState(st *objState, userUpdate storage.UpdateFunc) (runtime.Object, uint64, error) {
+/*func (s *rawStore) updateState(st *objState, userUpdate storage.UpdateFunc) (runtime.Object, uint64, error) {
 	ret, ttlPtr, err := userUpdate(st.obj, *st.meta)
 	if err != nil {
 		return nil, 0, err
@@ -391,6 +411,7 @@ func (s *rawStore) updateState(st *objState, userUpdate storage.UpdateFunc) (run
 	}
 	return ret, ttl, nil
 }
+*/
 
 // ttlOpts returns client options based on given ttl.
 // ttl: if ttl is non-zero, it will attach the key to a lease with ttl of roughly the same length
@@ -411,27 +432,3 @@ func notFound(key string) clientv3.Cmp {
 	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
 }
 
-func Set(ctx context.Context, key string, raw *generic.RawObject) (bool, error) {
-	if ctx == nil {
-		glog.Errorf("Context is nil")
-	}
-	if raw == nil {
-		return false, nil // maybe this should be an error.. a well behaved client should ask us to Set nothing
-	}
-	opts := etcd.SetOptions{
-		PrevIndex: raw.Version,
-		TTL:       time.Duration(raw.TTL) * time.Second,
-	}
-	if raw.Version == 0 {
-		opts.PrevExist = etcd.PrevNoExist
-	}
-	response, err := s.etcdKeysAPI.Set(ctx, key, string(raw.Data), &opts)
-	copyResponse(response, raw, false)
-	if err != nil {
-		if etcdutil.IsEtcdTestFailed(err) || (raw.Version == 0 && etcdutil.IsEtcdNodeExist(err)) {
-			return false, nil
-		}
-		return false, toStorageErr(err, key, 0)
-	}
-	return true, nil
-}
