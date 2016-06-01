@@ -17,25 +17,15 @@ limitations under the License.
 package etcd3
 
 import (
-	"bytes"
-	"errors"
-	"fmt"
-	"path"
-	"reflect"
 	"strings"
+	"path"
 
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/meta"
-	"k8s.io/kubernetes/pkg/conversion"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/etcd"
-	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/coreos/etcd/clientv3"
-	"github.com/golang/glog"
-	"golang.org/x/net/context"
-	"time"
+	"k8s.io/kubernetes/pkg/conversion"
 )
 
 type store struct {
@@ -60,7 +50,7 @@ type objState struct {
 
 // New returns an etcd3 implementation of storage.Interface.
 func New(c *clientv3.Client, codec runtime.Codec, prefix string) storage.Interface {
-	return newStore(c, codec, prefix)
+	return storage.NewGenericWrapper(NewGenericRaw(c, codec, prefix), codec, prefix)
 }
 
 func newStore(c *clientv3.Client, codec runtime.Codec, prefix string) *store {
@@ -73,7 +63,7 @@ func newStore(c *clientv3.Client, codec runtime.Codec, prefix string) *store {
 		watcher:    newWatcher(c, codec, versioner),
 	}
 }
-
+/*
 // Backends implements storage.Interface.Backends.
 func (s *store) Backends(ctx context.Context) []string {
 	resp, err := s.client.MemberList(ctx)
@@ -414,6 +404,7 @@ func (s *store) ttlOpts(ctx context.Context, ttl int64) ([]clientv3.OpOption, er
 	}
 	return []clientv3.OpOption{clientv3.WithLease(clientv3.LeaseID(lcr.ID))}, nil
 }
+*/
 
 func keyWithPrefix(prefix, key string) string {
 	if strings.HasPrefix(key, prefix) {
@@ -421,6 +412,7 @@ func keyWithPrefix(prefix, key string) string {
 	}
 	return path.Join(prefix, key)
 }
+
 
 // decode decodes value of bytes into object. It will also set the object resource version to rev.
 // On success, objPtr would be set to the object.
@@ -436,7 +428,7 @@ func decode(codec runtime.Codec, versioner storage.Versioner, value []byte, objP
 	versioner.UpdateObject(objPtr, nil, uint64(rev))
 	return nil
 }
-
+/*
 // decodeList decodes a list of values into a list of objects, with resource version set to corresponding rev.
 // On success, ListPtr would be set to the list of objects.
 func decodeList(elems []*elemForDecode, filter storage.FilterFunc, ListPtr interface{}, codec runtime.Codec, versioner storage.Versioner) error {
@@ -472,3 +464,4 @@ func checkPreconditions(key string, preconditions *storage.Preconditions, out ru
 	}
 	return nil
 }
+*/
