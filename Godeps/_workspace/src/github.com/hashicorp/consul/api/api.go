@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	cleanhttp "github.com/hashicorp/go-cleanhttp"
+	"github.com/hashicorp/go-cleanhttp"
 )
 
 // QueryOptions are used to parameterize a query
@@ -80,6 +80,9 @@ type QueryMeta struct {
 
 	// How long did the request take
 	RequestTime time.Duration
+	
+	// Status response from server
+	HttpStatusCode int
 }
 
 // WriteMeta is used to return meta data about a write
@@ -517,6 +520,8 @@ func (c *Client) write(endpoint string, in, out interface{}, q *WriteOptions) (*
 // parseQueryMeta is used to help parse query meta-data
 func parseQueryMeta(resp *http.Response, q *QueryMeta) error {
 	header := resp.Header
+	
+	q.HttpStatusCode = resp.StatusCode
 
 	// Parse the X-Consul-Index
 	index, err := strconv.ParseUint(header.Get("X-Consul-Index"), 10, 64)
