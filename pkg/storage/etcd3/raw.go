@@ -359,7 +359,7 @@ func (s *rawStore) watch(ctx context.Context, key string, rv string, list bool) 
 	}
 	key = keyWithPrefix(s.pathPrefix, key)
 	ret := newEtcd3WatcherRaw(list, s.quorum)
-	go ret.etcdWatch(ctx, s.etcdKeysAPI, key, watchRV)
+	go ret.etcdWatch(ctx, key, watchRV)
 	return ret, nil
 }
 
