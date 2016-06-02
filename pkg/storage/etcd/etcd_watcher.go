@@ -18,20 +18,13 @@ package etcd
 
 import (
 	"fmt"
-	"net/http"
-	"sync"
 	"sync/atomic"
-	"time"
 
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/storage"
 	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
 	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
-	"k8s.io/kubernetes/pkg/watch"
 
 	etcd "github.com/coreos/etcd/client"
-	"github.com/golang/glog"
 	"golang.org/x/net/context"
 )
 
@@ -75,7 +68,7 @@ func exceptKey(except string) includeFunc {
 		return key != except
 	}
 }
-
+/*
 // etcdWatcher converts a native etcd watch to a watch.Interface.
 type etcdWatcher struct {
 	encoding runtime.Codec
@@ -115,6 +108,7 @@ const watchWaitDuration = 100 * time.Millisecond
 
 // newEtcdWatcher returns a new etcdWatcher; if list is true, watch sub-nodes.
 // The versioner must be able to handle the objects that transform creates.
+
 func newEtcdWatcher(
 	list bool, quorum bool, include includeFunc, filter storage.FilterFunc,
 	encoding runtime.Codec, versioner storage.Versioner, transform TransformFunc,
@@ -221,7 +215,7 @@ func (w *etcdWatcher) etcdWatch(ctx context.Context, client etcd.KeysAPI, key st
 		w.etcdIncoming <- resp
 	}
 }
-
+*/
 // etcdGetInitialWatchState turns an etcd Get request into a watch equivalent
 func etcdGetInitialWatchState(ctx context.Context, client etcd.KeysAPI, key string, recursive bool, quorum bool, incoming chan<- *etcd.Response) (resourceVersion uint64, err error) {
 	opts := etcd.GetOptions{
@@ -263,7 +257,7 @@ func convertRecursiveResponse(node *etcd.Node, response *etcd.Response, incoming
 var (
 	watchChannelHWM HighWaterMark
 )
-
+/*
 // translate pulls stuff from etcd, converts, and pushes out the outgoing channel. Meant to be
 // called as a goroutine.
 func (w *etcdWatcher) translate() {
@@ -495,3 +489,4 @@ func (w *etcdWatcher) Stop() {
 	// will be issued.
 	w.wg.Wait()
 }
+*/

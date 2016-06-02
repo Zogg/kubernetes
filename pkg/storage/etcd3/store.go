@@ -22,19 +22,10 @@ import (
 
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
-	"k8s.io/kubernetes/pkg/storage/etcd"
 
 	"github.com/coreos/etcd/clientv3"
 	"k8s.io/kubernetes/pkg/conversion"
 )
-
-type store struct {
-	client     *clientv3.Client
-	codec      runtime.Codec
-	versioner  storage.Versioner
-	pathPrefix string
-	watcher    *watcher
-}
 
 type elemForDecode struct {
 	data []byte
@@ -50,19 +41,14 @@ type objState struct {
 
 // New returns an etcd3 implementation of storage.Interface.
 func New(c *clientv3.Client, codec runtime.Codec, prefix string) storage.Interface {
-	return storage.NewGenericWrapper(NewGenericRaw(c, codec, prefix), codec, prefix)
+	return storage.NewGenericWrapperInt(NewRaw(c, codec, prefix), codec, prefix)
 }
 
-func newStore(c *clientv3.Client, codec runtime.Codec, prefix string) *store {
-	versioner := etcd.APIObjectVersioner{}
-	return &store{
-		client:     c,
-		versioner:  versioner,
-		codec:      codec,
-		pathPrefix: prefix,
-		watcher:    newWatcher(c, codec, versioner),
-	}
+func newStore(c *clientv3.Client, codec runtime.Codec, prefix string) *rawStore {
+	dataStore := newRawStore(c, codec, prefix)
+	return dataStore
 }
+
 /*
 // Backends implements storage.Interface.Backends.
 func (s *store) Backends(ctx context.Context) []string {

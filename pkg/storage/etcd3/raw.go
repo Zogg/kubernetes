@@ -75,20 +75,21 @@ func (s *rawStore) Create(ctx context.Context, key string, data []byte, raw *gen
 }
 
 // New returns an etcd3 implementation of storage.Interface.
-func NewGenericRaw(c *clientv3.Client, codec runtime.Codec, prefix string) generic.InterfaceRaw {
+func NewRaw(c *clientv3.Client, codec runtime.Codec, prefix string) generic.InterfaceRaw {
 	return newRawStore(c, codec, prefix)
 }
 
 // FIXME
 func newRawStore(c *clientv3.Client, codec runtime.Codec, prefix string) *rawStore {
 	versioner := etcd.APIObjectVersioner{}
-	return &rawStore{
+	dataStore := &rawStore{
 		client:     c,
 		versioner:  versioner,
 		codec:      codec,
 		pathPrefix: prefix,
-		watcher:    newWatcher(c, codec, versioner),
 	}
+	dataStore.watcher = newWatcher(c, dataStore, codec, versioner)
+	return dataStore
 }
 
 // Backends implements storage.Interface.Backends.
@@ -127,7 +128,9 @@ func (s *rawStore) Get(ctx context.Context, key string, raw *generic.RawObject) 
 		return storage.NewKeyNotFoundError(key, 0)
 	}
 	kv := getResp.Kvs[0]
-	return nil
+	raw.Version = uint64(kv.Version)
+	_, err = kv.MarshalTo(raw.Data)
+	return err
 }
 
 // Delete implements storage.Interface.Delete.
@@ -358,9 +361,10 @@ func (s *rawStore) watch(ctx context.Context, key string, rv string, list bool) 
 		return nil, err
 	}
 	key = keyWithPrefix(s.pathPrefix, key)
-	ret := newEtcd3WatcherRaw(list, s.client)
-	go ret.etcdWatch(ctx, key, watchRV)
-	return ret, nil
+	watcher := newWatcher(s.client, s, s.codec, s.versioner)
+	rawWatcherChan := watcher.createWatchChanRaw(ctx, key, int64(watchRV), list)
+	rawWatcherChan.run()
+	return rawWatcherChan, nil
 }
 
 func (s *rawStore) getState(getResp *clientv3.GetResponse, key string, v reflect.Value, ignoreNotFound bool) (*objState, error) {

@@ -68,7 +68,12 @@ func newEtcdWatcherRaw(list bool, quorum bool, include includeFunc) *etcdWatcher
 		ctx:          nil,
 		cancel:       nil,
 	}
-	w.emit = func(e generic.RawEvent) { w.outgoing <- e }
+	w.emit = func(e generic.RawEvent) {
+		select {
+		case w.outgoing <- e:
+		case <-w.userStop:
+		}
+	}
 	go w.translate()
 	return w
 }
@@ -136,6 +141,7 @@ func (w *etcdWatcherRaw) etcdWatch(ctx context.Context, client etcd.KeysAPI, key
 // translate pulls stuff from etcd, converts, and pushes out the outgoing channel. Meant to be
 // called as a goroutine.
 func (w *etcdWatcherRaw) translate() {
+	defer w.wg.Done() // TODO: have Johanatan check this, why was this removed?
 	defer close(w.outgoing)
 	defer utilruntime.HandleCrash()
 
@@ -256,7 +262,7 @@ func (w *etcdWatcherRaw) sendResult(res *etcd.Response) {
 	}
 }
 
-// ResultChan implements watch.Interface.
+// ResultChan implements generic.InterfaceRawWatch
 func (w *etcdWatcherRaw) ResultChan() <-chan generic.RawEvent {
 	return w.outgoing
 }

@@ -35,7 +35,7 @@ func newConsulStorage(c Config) (storage.Interface, error) {
 	if err != nil {
 		return nil, err
 	}
-	return storage.NewGenericWrapper(raw, c.Codec, c.Prefix), nil
+	return storage.NewGenericWrapperInt(raw, c.Codec, c.Prefix), nil
 }
 
 func newConsulRawStorage(c Config) (generic.InterfaceRaw, error) {

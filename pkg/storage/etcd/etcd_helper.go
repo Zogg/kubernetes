@@ -78,7 +78,7 @@ func NewEtcdStorage(client etcd.Client, codec runtime.Codec, prefix string, quor
 	//stor, _ := config.NewStorage()
 	//return stor
 	
-	return storage.NewGenericWrapper(NewEtcdRawStorage(client, quorum), codec, prefix)
+	return storage.NewGenericWrapperInt(NewEtcdRawStorage(client, quorum), codec, prefix)
 }
 /*
 // etcdHelper is the reference implementation of storage.Interface.
