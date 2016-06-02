@@ -26,13 +26,14 @@ type etcd3WatcherRaw struct {
 	emit     func(generic.RawEvent)
 	stopLock sync.Mutex
 	// wg is used to avoid calls to etcd after Stop()
-	wg sync.WaitGroup
+	wg     sync.WaitGroup
+	client *clientv3.Client
 }
 
 // newEtcdWatcher returns a new etcdWatcher; if list is true, watch sub-nodes.
 // The versioner must be able to handle the objects that transform creates.
 
-func newEtcd3WatcherRaw(list bool, quorum bool) *etcd3WatcherRaw {
+func newEtcd3WatcherRaw(list bool, client *clientv3.Client) *etcd3WatcherRaw {
 	w := &etcd3WatcherRaw{
 		etcdIncoming: make(
 			chan *clientv3.WatchResponse, 100),
@@ -43,6 +44,7 @@ func newEtcd3WatcherRaw(list bool, quorum bool) *etcd3WatcherRaw {
 		userStop:  make(chan struct{}),
 		stopped:   false,
 		wg:        sync.WaitGroup{},
+		client:    client,
 	}
 	return w
 }
@@ -76,7 +78,13 @@ func (w *etcd3WatcherRaw) etcdWatch(ctx context.Context, key string, resourceVer
 		// Stop() is called in the meantime (which in tests can cause etcd termination and
 		// strange behavior here).
 		if resourceVersion == 0 {
-			latest, err := etcdGetInitialWatchState(ctx, client, key, w.list, w.quorum, w.etcdIncoming)
+			latest, err := etcdGetInitialWatchState(
+				ctx,
+				*w.client,
+				key,
+				w.etcdIncoming,
+			)
+
 			if err != nil {
 				w.etcdError <- err
 				return true
@@ -105,6 +113,17 @@ func (w *etcd3WatcherRaw) etcdWatch(ctx context.Context, key string, resourceVer
 		}
 		w.etcdIncoming <- resp
 	}
+}
+
+// etcdGetInitialWatchState turns an etcd Get request into a watch equivalent
+func etcdGetInitialWatchState(ctx context.Context, client clientv3.Client, key string, incoming chan<- *clientv3.WatchResponse) (resourceVersion uint64, err error) {
+	resp, err := client.Get(ctx, key)
+	if err != nil {
+		return uint64(0), nil
+	}
+	resourceVersion = resp.Index
+	convertRecursiveResponse(resp.Node, resp, incoming)
+	return
 }
 
 // translate pulls stuff from etcd, converts, and pushes out the outgoing channel. Meant to be
