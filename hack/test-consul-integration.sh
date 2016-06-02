@@ -52,6 +52,7 @@ runTests() {
     KUBE_RACE="" \
     KUBE_TIMEOUT="${KUBE_TIMEOUT}" \
     KUBE_TEST_API_VERSIONS="$1" \
+    KUBE_STORAGE="consul" \
     "${KUBE_ROOT}/hack/test-go.sh" test/integration
 
   kube::log::status "Running integration test scenario with watch cache on"

@@ -319,12 +319,21 @@ IFS=';' read -a apiVersions <<< "${KUBE_TEST_API_VERSIONS}"
 IFS=',' read -a etcdPrefixes <<< "${KUBE_TEST_ETCD_PREFIXES}"
 apiVersionsCount=${#apiVersions[@]}
 etcdPrefixesCount=${#etcdPrefixes[@]}
+
 for (( i=0, j=0; ; )); do
   apiVersion=${apiVersions[i]}
   etcdPrefix=${etcdPrefixes[j]}
   echo "Running tests for APIVersion: $apiVersion with etcdPrefix: $etcdPrefix"
   # KUBE_TEST_API sets the version of each group to be tested.
-  KUBE_TEST_API="${apiVersion}" ETCD_PREFIX=${etcdPrefix} runTests "$@"
+
+  if [[ "$KUBE_STORAGE" = "consul" ]]; then
+    # FIXME: Pass consul config to tests and remove this error.
+    echo "**********Consul config is not being passed into the tests. Failing.*****";
+    exit 501;
+    KUBE_TEST_API="${apiVersion}" CONSUL_PREFIX=${etcdPrefix} runTests "$@"
+  else
+    KUBE_TEST_API="${apiVersion}" ETCD_PREFIX=${etcdPrefix} runTests "$@"
+  fi
   i=${i}+1
   j=${j}+1
   if [[ i -eq ${apiVersionsCount} ]] && [[ j -eq ${etcdPrefixesCount} ]]; then
