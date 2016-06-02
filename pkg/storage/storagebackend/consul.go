@@ -19,16 +19,21 @@ package storagebackend
 import (
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/consul"
+	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 func newConsulStorage(c Config) (storage.Interface, error) {
+	raw, err := newConsulRawStorage(c)
+	if err != nil {
+		return nil, err
+	}
+	return storage.NewGenericWrapper(raw, c.Codec, c.Prefix, c.DeserializationCacheSize), nil
+}
+
+func newConsulRawStorage(c Config) (generic.InterfaceRaw, error) {
 	// TODO: clean up configuration parameter handling
 	internalConfig := &consul.ConsulConfig{
 		WaitTimeout: consul.DefaultWaitTimeout,
 	}
-	client, err := internalConfig.NewRawStorage()
-	if err != nil {
-		return nil, err
-	}
-	return storage.NewGenericWrapper(client, c.Codec, c.Prefix, c.DeserializationCacheSize), nil
+	return internalConfig.NewRawStorage()
 }

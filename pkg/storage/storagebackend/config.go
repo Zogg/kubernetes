@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
+	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 const (
@@ -65,6 +66,20 @@ func Create(c Config) (storage.Interface, error) {
 		return newETCD3Storage(c)
 	case StorageTypeConsul:
 		return newConsulStorage(c)
+	default:
+		return nil, fmt.Errorf("unknown storage type: %s", c.Type)
+	}
+}
+
+func CreateRaw(c Config) (generic.InterfaceRaw, error) {
+	switch c.Type {
+	case StorageTypeUnset, StorageTypeETCD2:
+		return newETCD2RawStorage(c)
+	case StorageTypeETCD3:
+		// TODO: implement ETCD3 raw-storage
+		return nil, fmt.Errorf("storage-raw etcd3 not yet implemented")
+	case StorageTypeConsul:
+		return newConsulRawStorage(c)
 	default:
 		return nil, fmt.Errorf("unknown storage type: %s", c.Type)
 	}
