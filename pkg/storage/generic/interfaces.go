@@ -1,4 +1,3 @@
-
 package generic
 
 import (
@@ -8,19 +7,23 @@ import (
 
 	"golang.org/x/net/context"
 )
+
 type RawObject struct {
 	Data    []byte
 	Version uint64
 	TTL     int64
+	UID     []byte
 }
 
-type RawFilterFunc func( raw *RawObject ) (bool, error)
+type RawFilterFunc func(raw *RawObject) (bool, error)
+
 type RawEvent struct {
 	Type        watch.EventType
 	Current     RawObject
 	Previous    RawObject
 	ErrorStatus interface{}
 }
+
 type InterfaceRawWatch interface {
 	Stop()
 	ResultChan() <-chan RawEvent
@@ -30,9 +33,9 @@ type UpdateFunc func(raw *RawObject) error
 
 type InterfaceRaw interface {
 	Backends(ctx context.Context) []string
-	
+
 	Create(ctx context.Context, key string, data []byte, raw *RawObject, ttl uint64) error
-	
+
 	// Delete removes the specified key and returns the value that existed at that spot.
 	// If key didn't exist, it will return NotFound storage error.
 	Delete(ctx context.Context, key string, raw *RawObject, preconditions RawFilterFunc) error

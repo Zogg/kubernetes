@@ -22,6 +22,7 @@ import (
 	"k8s.io/kubernetes/pkg/storage/generic"
 	"k8s.io/kubernetes/pkg/types"
 	"k8s.io/kubernetes/pkg/watch"
+	"time"
 )
 
 // Versioner abstracts setting and retrieving metadata fields from database response
@@ -48,6 +49,9 @@ type ResponseMeta struct {
 	// zero or negative in some cases (objects may be expired after the requested
 	// expiration time due to server lag).
 	TTL int64
+	// Expiration is the time at which the node that contained the returned object will expire and be deleted.
+	// This can be nil if there is no expiration time set for the node.
+	Expiration *time.Time
 	// The resource version of the node that contained the returned object.
 	ResourceVersion uint64
 }
@@ -166,7 +170,7 @@ type Interface interface {
 type Config interface {
 	// Creates the Interface base on ConfigObject
 	NewStorage() (Interface, error)
-	
+
 	// Creates the raw-layer Interface based on ConfigObject
 	NewRawStorage() (generic.InterfaceRaw, error)
 

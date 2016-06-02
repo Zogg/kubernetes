@@ -38,7 +38,7 @@ import (
 
 func NewStorage(t *testing.T, factory storagefactory.TestServerFactory, group string) (storage.Interface, storagefactory.TestServer) {
 	server := factory.NewTestClientServer(t)
-	storage := storage.NewGenericWrapper(server.NewRawStorage(), testapi.Groups[group].Codec(), etcdtest.PathPrefix(), etcdtest.DeserializationCacheSize)
+	storage := storage.NewGenericWrapper(server.NewRawStorage(), testapi.Groups[group].StorageCodec(), etcdtest.PathPrefix(), etcdtest.DeserializationCacheSize)
 	return storage, server
 }
 
@@ -61,6 +61,11 @@ func (t *Tester) TestNamespace() string {
 
 func (t *Tester) ClusterScope() *Tester {
 	t.tester = t.tester.ClusterScope()
+	return t
+}
+
+func (t *Tester) Namer(namer func(int) string) *Tester {
+	t.tester = t.tester.Namer(namer)
 	return t
 }
 

@@ -18,6 +18,7 @@ api-token
 api-version
 apiserver-count
 auth-path
+authentication-token-webhook-config-file
 authorization-mode
 authorization-policy-file
 authorization-webhook-config-file
@@ -95,6 +96,7 @@ dockercfg-path
 driver-port
 drop-embedded-fields
 dry-run
+dump-logs-on-failure
 duration-sec
 e2e-output-dir
 e2e-verify-service-account
@@ -119,16 +121,20 @@ event-ttl
 eviction-hard
 eviction-soft
 eviction-soft-grace-period
+eviction-pressure-transition-period
+eviction-max-pod-grace-period
 executor-bindall
 executor-logv
 executor-path
 executor-suicide-timeout
 experimental-flannel-overlay
 experimental-keystone-url
+experimental-nvidia-gpus
 experimental-prefix
 external-hostname
 external-ip
 failover-timeout
+failure-domains
 fake-clientset
 file-check-frequency
 file-suffix
@@ -153,6 +159,7 @@ google-json-key
 grace-period
 ha-domain
 hairpin-mode
+hard-pod-affinity-symmetric-weight
 healthz-bind-address
 healthz-port
 horizontal-pod-autoscaler-sync-period
@@ -167,7 +174,10 @@ ignore-daemonsets
 ignore-not-found
 image-gc-high-threshold
 image-gc-low-threshold
+image-pull-policy
 include-extended-apis
+included-types-overrides
+input-base
 input-dirs
 insecure-bind-address
 insecure-port
@@ -189,8 +199,8 @@ k8s-build-output
 keep-gogoproto
 km-path
 kube-api-burst
-kube-api-qps
 kube-api-content-type
+kube-api-qps
 kube-master
 kube-master
 kube-master-url
@@ -230,6 +240,7 @@ lock-file
 log-flush-frequency
 long-running-request-regexp
 low-diskspace-threshold-mb
+make-symlinks
 manifest-url
 manifest-url-header
 masquerade-all
@@ -374,6 +385,7 @@ service-overrides
 service-sync-period
 session-affinity
 show-all
+show-events
 show-labels
 shutdown-fd
 shutdown-fifo
@@ -392,6 +404,7 @@ static-pods-config
 stats-port
 stop-services
 storage-backend
+storage-media-type
 storage-version
 storage-versions
 streaming-connection-idle-timeout

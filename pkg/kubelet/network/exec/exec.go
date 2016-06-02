@@ -66,6 +66,7 @@ import (
 
 	"github.com/golang/glog"
 	"k8s.io/kubernetes/pkg/api/unversioned"
+	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/network"
 	utilexec "k8s.io/kubernetes/pkg/util/exec"
@@ -104,7 +105,7 @@ func ProbeNetworkPlugins(pluginDir string) []network.NetworkPlugin {
 	return execPlugins
 }
 
-func (plugin *execNetworkPlugin) Init(host network.Host) error {
+func (plugin *execNetworkPlugin) Init(host network.Host, hairpinMode componentconfig.HairpinMode) error {
 	err := plugin.validate()
 	if err != nil {
 		return err
@@ -146,7 +147,7 @@ func (plugin *execNetworkPlugin) TearDownPod(namespace string, name string, id k
 	return err
 }
 
-func (plugin *execNetworkPlugin) Status(namespace string, name string, id kubecontainer.ContainerID) (*network.PodNetworkStatus, error) {
+func (plugin *execNetworkPlugin) GetPodNetworkStatus(namespace string, name string, id kubecontainer.ContainerID) (*network.PodNetworkStatus, error) {
 	out, err := utilexec.New().Command(plugin.getExecutable(), statusCmd, namespace, name, id.ID).CombinedOutput()
 	glog.V(5).Infof("Status 'exec' network plugin output: %s, %v", string(out), err)
 	if err != nil {

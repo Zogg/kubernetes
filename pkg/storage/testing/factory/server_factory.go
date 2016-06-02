@@ -10,10 +10,10 @@ import (
 	"time"
 	
 	"k8s.io/kubernetes/pkg/storage"
-	"k8s.io/kubernetes/pkg/storage/consul"
 	"k8s.io/kubernetes/pkg/storage/etcd"
 	"k8s.io/kubernetes/pkg/storage/generic"
 	etcdtesting "k8s.io/kubernetes/pkg/storage/etcd/testing"
+	"k8s.io/kubernetes/pkg/storage/storagebackend"
 
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
@@ -99,7 +99,14 @@ type ConsulTestServerFactory struct {
 }
 
 func(f *ConsulTestServerFactory) NewTestClientServer(t *testing.T) TestServer {
-	if isUp(&consul.ConsulConfig{}, t) {
+	server := &ConsulTestServer{
+		cmdLeave:   exec.Command( f.filePath, "leave" ),
+		config:     storagebackend.Config{
+			Type:	storagebackend.StorageTypeConsul,
+			ServerList: 	[]string{"127.0.0.1"},
+		},
+	}
+	if isUp(&server.config, t) {
 		glog.Infof("Consul agent already running... attempting to shut it down")
 		exec.Command( f.filePath, "leave" ).Run()
 	}
@@ -109,10 +116,8 @@ func(f *ConsulTestServerFactory) NewTestClientServer(t *testing.T) TestServer {
 		t.Errorf("unexpected error: %v", err)
 	}
 	
-	server := &ConsulTestServer{
-		cmdServer:  cmd,
-		cmdLeave:   exec.Command( f.filePath, "leave" ),
-	}
+	server.cmdServer = cmd
+
 	err = server.waitUntilUp(t)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -127,11 +132,11 @@ func(f *ConsulTestServerFactory) GetName() string {
 type ConsulTestServer struct {
 	cmdServer   *exec.Cmd
 	cmdLeave    *exec.Cmd
-	config      consul.ConsulConfig
+	config      storagebackend.Config
 }
 
-func isUp(config *consul.ConsulConfig, t *testing.T) bool {
-	rawStorage, err := config.NewRawStorage()
+func isUp(config *storagebackend.Config, t *testing.T) bool {
+	rawStorage, err := storagebackend.CreateRaw(*config)
 	if err != nil {
 		glog.Infof("Failed to get raw storage (retrying): %v", err)
 		return false
@@ -156,7 +161,7 @@ func (s *ConsulTestServer) waitUntilUp(t *testing.T) error {
 
 
 func(s *ConsulTestServer) NewRawStorage() generic.InterfaceRaw {
-	ret, _ := s.config.NewRawStorage()
+	ret, _ := storagebackend.CreateRaw(s.config)
 	return ret
 }
 

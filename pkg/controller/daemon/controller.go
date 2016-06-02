@@ -38,6 +38,7 @@ import (
 	"k8s.io/kubernetes/pkg/controller/framework/informers"
 	"k8s.io/kubernetes/pkg/labels"
 	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/util/metrics"
 	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
 	"k8s.io/kubernetes/pkg/util/sets"
 	"k8s.io/kubernetes/pkg/util/validation/field"
@@ -107,12 +108,15 @@ type DaemonSetsController struct {
 	queue *workqueue.Type
 }
 
-func NewDaemonSetsController(podInformer framework.SharedInformer, kubeClient clientset.Interface, resyncPeriod controller.ResyncPeriodFunc, lookupCacheSize int) *DaemonSetsController {
+func NewDaemonSetsController(podInformer framework.SharedIndexInformer, kubeClient clientset.Interface, resyncPeriod controller.ResyncPeriodFunc, lookupCacheSize int) *DaemonSetsController {
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
 	// TODO: remove the wrapper when every clients have moved to use the clientset.
 	eventBroadcaster.StartRecordingToSink(&unversionedcore.EventSinkImpl{Interface: kubeClient.Core().Events("")})
 
+	if kubeClient != nil && kubeClient.Core().GetRESTClient().GetRateLimiter() != nil {
+		metrics.RegisterMetricAndTrackRateLimiterUsage("daemon_controller", kubeClient.Core().GetRESTClient().GetRateLimiter())
+	}
 	dsc := &DaemonSetsController{
 		kubeClient:    kubeClient,
 		eventRecorder: eventBroadcaster.NewRecorder(api.EventSource{Component: "daemonset-controller"}),
@@ -179,7 +183,7 @@ func NewDaemonSetsController(podInformer framework.SharedInformer, kubeClient cl
 		UpdateFunc: dsc.updatePod,
 		DeleteFunc: dsc.deletePod,
 	})
-	dsc.podStore.Store = podInformer.GetStore()
+	dsc.podStore.Indexer = podInformer.GetIndexer()
 	dsc.podController = podInformer.GetController()
 	dsc.podStoreSynced = podInformer.HasSynced
 
@@ -206,7 +210,7 @@ func NewDaemonSetsController(podInformer framework.SharedInformer, kubeClient cl
 }
 
 func NewDaemonSetsControllerFromClient(kubeClient clientset.Interface, resyncPeriod controller.ResyncPeriodFunc, lookupCacheSize int) *DaemonSetsController {
-	podInformer := informers.CreateSharedPodInformer(kubeClient, resyncPeriod())
+	podInformer := informers.CreateSharedPodIndexInformer(kubeClient, resyncPeriod())
 	dsc := NewDaemonSetsController(podInformer, kubeClient, resyncPeriod, lookupCacheSize)
 	dsc.internalPodInformer = podInformer
 
@@ -549,15 +553,15 @@ func (dsc *DaemonSetsController) manage(ds *extensions.DaemonSet) {
 }
 
 func storeDaemonSetStatus(dsClient unversionedextensions.DaemonSetInterface, ds *extensions.DaemonSet, desiredNumberScheduled, currentNumberScheduled, numberMisscheduled int) error {
-	if ds.Status.DesiredNumberScheduled == desiredNumberScheduled && ds.Status.CurrentNumberScheduled == currentNumberScheduled && ds.Status.NumberMisscheduled == numberMisscheduled {
+	if int(ds.Status.DesiredNumberScheduled) == desiredNumberScheduled && int(ds.Status.CurrentNumberScheduled) == currentNumberScheduled && int(ds.Status.NumberMisscheduled) == numberMisscheduled {
 		return nil
 	}
 
 	var updateErr, getErr error
 	for i := 0; i <= StatusUpdateRetries; i++ {
-		ds.Status.DesiredNumberScheduled = desiredNumberScheduled
-		ds.Status.CurrentNumberScheduled = currentNumberScheduled
-		ds.Status.NumberMisscheduled = numberMisscheduled
+		ds.Status.DesiredNumberScheduled = int32(desiredNumberScheduled)
+		ds.Status.CurrentNumberScheduled = int32(currentNumberScheduled)
+		ds.Status.NumberMisscheduled = int32(numberMisscheduled)
 
 		_, updateErr = dsClient.UpdateStatus(ds)
 		if updateErr == nil {
@@ -682,7 +686,7 @@ func (dsc *DaemonSetsController) nodeShouldRunDaemonPod(node *api.Node, ds *exte
 	newPod.Spec.NodeName = node.Name
 	pods := []*api.Pod{newPod}
 
-	for _, m := range dsc.podStore.Store.List() {
+	for _, m := range dsc.podStore.Indexer.List() {
 		pod := m.(*api.Pod)
 		if pod.Spec.NodeName != node.Name {
 			continue
@@ -697,8 +701,8 @@ func (dsc *DaemonSetsController) nodeShouldRunDaemonPod(node *api.Node, ds *exte
 		}
 		pods = append(pods, pod)
 	}
-	_, notFittingCPU, notFittingMemory := predicates.CheckPodsExceedingFreeResources(pods, node.Status.Allocatable)
-	if len(notFittingCPU)+len(notFittingMemory) != 0 {
+	_, notFittingCPU, notFittingMemory, notFittingNvidiaGPU := predicates.CheckPodsExceedingFreeResources(pods, node.Status.Allocatable)
+	if len(notFittingCPU)+len(notFittingMemory)+len(notFittingNvidiaGPU) != 0 {
 		dsc.eventRecorder.Eventf(ds, api.EventTypeNormal, "FailedPlacement", "failed to place pod on %q: insufficent free resources", node.ObjectMeta.Name)
 		return false
 	}

@@ -84,7 +84,7 @@ import (
 	"k8s.io/kubernetes/pkg/fields"
 	"k8s.io/kubernetes/pkg/healthz"
 	"k8s.io/kubernetes/pkg/master/ports"
-	"k8s.io/kubernetes/pkg/storage/consul"
+	"k8s.io/kubernetes/pkg/storage/storagebackend"
 	"k8s.io/kubernetes/pkg/util/sets"
 
 	// lock to this API version, compilation will fail when this becomes unsupported
@@ -1086,10 +1086,11 @@ func (s *SchedulerServer) frameworkIDStorage(keysAPI etcd.KeysAPI) (frameworkid.
 	case "etcd":
 		return frameworkidEtcd.Store(keysAPI, idpath, time.Duration(s.failoverTimeout)*time.Second), nil
 	case "consulkv":
-		config := &consul.ConsulConfig{
-			WaitTimeout:	consul.DefaultWaitTimeout,
+		config := storagebackend.Config{
+			Type:	storagebackend.StorageTypeConsul,
+			ServerList: 	[]string{"127.0.0.1"},
 		}
-		storage, err := config.NewRawStorage()
+		storage, err := storagebackend.CreateRaw(config)
 		if err != nil {
 			return nil, err
 		}

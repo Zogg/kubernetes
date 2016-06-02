@@ -50,7 +50,7 @@ MASTER_NAME="${INSTANCE_PREFIX}-master"
 MASTER_TAG="${INSTANCE_PREFIX}-master"
 NODE_TAG="${INSTANCE_PREFIX}-minion"
 MASTER_IP_RANGE="${MASTER_IP_RANGE:-10.246.0.0/24}"
-CLUSTER_IP_RANGE="${CLUSTER_IP_RANGE:-10.244.0.0/16}"
+CLUSTER_IP_RANGE="${CLUSTER_IP_RANGE:-10.244.0.0/14}"
 NODE_SCOPES="${NODE_SCOPES:-compute-rw,monitoring,logging-write,storage-ro}"
 
 # Extra docker options for nodes.
@@ -91,8 +91,8 @@ RUNTIME_CONFIG="${KUBE_RUNTIME_CONFIG:-}"
 
 # Optional: Install cluster DNS.
 ENABLE_CLUSTER_DNS="${KUBE_ENABLE_CLUSTER_DNS:-true}"
-DNS_SERVER_IP="10.0.0.10"
-DNS_DOMAIN="cluster.local"
+DNS_SERVER_IP="${KUBE_DNS_SERVER_IP:-10.0.0.10}"
+DNS_DOMAIN="${KUBE_DNS_DOMAIN:-cluster.local}"
 DNS_REPLICAS=1
 
 # Optional: Install cluster docker registry.
@@ -109,8 +109,6 @@ ENABLE_NODE_AUTOSCALER="${KUBE_ENABLE_NODE_AUTOSCALER:-false}"
 if [[ "${ENABLE_NODE_AUTOSCALER}" == "true" ]]; then
   AUTOSCALER_MIN_NODES="${KUBE_AUTOSCALER_MIN_NODES:-1}"
   AUTOSCALER_MAX_NODES="${KUBE_AUTOSCALER_MAX_NODES:-${NUM_NODES}}"
-  TARGET_NODE_UTILIZATION="${KUBE_TARGET_NODE_UTILIZATION:-0.7}"
-  ENABLE_CLUSTER_MONITORING=googleinfluxdb
 fi
 
 # Admission Controllers to invoke prior to persisting objects in cluster

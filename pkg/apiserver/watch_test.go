@@ -88,8 +88,7 @@ func TestWatchWebsocket(t *testing.T) {
 	_ = rest.Watcher(simpleStorage) // Give compile error if this doesn't work.
 	handler := handle(map[string]rest.Storage{"simples": simpleStorage})
 	server := httptest.NewServer(handler)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 
 	dest, _ := url.Parse(server.URL)
 	dest.Scheme = "ws" // Required by websocket, though the server never sees it.
@@ -142,8 +141,7 @@ func TestWatchRead(t *testing.T) {
 	_ = rest.Watcher(simpleStorage) // Give compile error if this doesn't work.
 	handler := handle(map[string]rest.Storage{"simples": simpleStorage})
 	server := httptest.NewServer(handler)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 
 	dest, _ := url.Parse(server.URL)
 	dest.Path = "/" + prefix + "/" + testGroupVersion.Group + "/" + testGroupVersion.Version + "/simples"
@@ -224,9 +222,9 @@ func TestWatchRead(t *testing.T) {
 
 	for _, protocol := range protocols {
 		for _, test := range testCases {
-			serializer, framer, _, ok := api.Codecs.StreamingSerializerForMediaType(test.MediaType, nil)
+			serializer, ok := api.Codecs.StreamingSerializerForMediaType(test.MediaType, nil)
 			if !ok {
-				t.Fatal(framer)
+				t.Fatal(serializer)
 			}
 
 			r, contentType := protocol.fn(test.Accept)
@@ -237,13 +235,13 @@ func TestWatchRead(t *testing.T) {
 			}
 			objectSerializer, ok := api.Codecs.SerializerForMediaType(test.MediaType, nil)
 			if !ok {
-				t.Fatal(framer)
+				t.Fatal(objectSerializer)
 			}
 			objectCodec := api.Codecs.DecoderToVersion(objectSerializer, testInternalGroupVersion)
 
-			var fr io.Reader = r
+			var fr io.ReadCloser = r
 			if !protocol.selfFraming {
-				fr = framer.NewFrameReader(r)
+				fr = serializer.Framer.NewFrameReader(r)
 			}
 			d := streaming.NewDecoder(fr, serializer)
 
@@ -328,8 +326,7 @@ func TestWatchParamParsing(t *testing.T) {
 		"simpleroots": simpleStorage,
 	})
 	server := httptest.NewServer(handler)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 
 	dest, _ := url.Parse(server.URL)
 
@@ -436,8 +433,7 @@ func TestWatchProtocolSelection(t *testing.T) {
 	simpleStorage := &SimpleRESTStorage{}
 	handler := handle(map[string]rest.Storage{"simples": simpleStorage})
 	server := httptest.NewServer(handler)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 	defer server.CloseClientConnections()
 	client := http.Client{}
 
@@ -499,9 +495,9 @@ func TestWatchHTTPTimeout(t *testing.T) {
 	timeoutCh := make(chan time.Time)
 	done := make(chan struct{})
 
-	_, framer, _, ok := api.Codecs.StreamingSerializerForMediaType("application/json", nil)
+	serializer, ok := api.Codecs.StreamingSerializerForMediaType("application/json", nil)
 	if !ok {
-		t.Fatal(framer)
+		t.Fatal(serializer)
 	}
 
 	// Setup a new watchserver
@@ -509,7 +505,7 @@ func TestWatchHTTPTimeout(t *testing.T) {
 		watching: watcher,
 
 		mediaType:       "testcase/json",
-		framer:          framer,
+		framer:          serializer.Framer,
 		encoder:         newCodec,
 		embeddedEncoder: newCodec,
 
@@ -520,8 +516,7 @@ func TestWatchHTTPTimeout(t *testing.T) {
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		watchServer.ServeHTTP(w, req)
 	}))
-	// TODO: Uncomment when fix #19254
-	// defer s.Close()
+	defer s.Close()
 
 	// Setup a client
 	dest, _ := url.Parse(s.URL)

@@ -18,20 +18,13 @@ package etcd
 
 import (
 	"fmt"
-	"net/http"
-	"sync"
 	"sync/atomic"
-	"time"
 
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/storage"
 	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
 	utilruntime "k8s.io/kubernetes/pkg/util/runtime"
-	"k8s.io/kubernetes/pkg/watch"
 
 	etcd "github.com/coreos/etcd/client"
-	"github.com/golang/glog"
 	"golang.org/x/net/context"
 )
 
@@ -75,7 +68,7 @@ func exceptKey(except string) includeFunc {
 		return key != except
 	}
 }
-
+/*
 // etcdWatcher converts a native etcd watch to a watch.Interface.
 type etcdWatcher struct {
 	encoding runtime.Codec
@@ -100,7 +93,8 @@ type etcdWatcher struct {
 	userStop chan struct{}
 	stopped  bool
 	stopLock sync.Mutex
-	// wg is used to avoid calls to etcd after Stop()
+	// wg is used to avoid calls to etcd after Stop(), and to make sure
+	// that the translate goroutine is not leaked.
 	wg sync.WaitGroup
 
 	// Injectable for testing. Send the event down the outgoing channel.
@@ -114,6 +108,7 @@ const watchWaitDuration = 100 * time.Millisecond
 
 // newEtcdWatcher returns a new etcdWatcher; if list is true, watch sub-nodes.
 // The versioner must be able to handle the objects that transform creates.
+
 func newEtcdWatcher(
 	list bool, quorum bool, include includeFunc, filter storage.FilterFunc,
 	encoding runtime.Codec, versioner storage.Versioner, transform TransformFunc,
@@ -146,7 +141,17 @@ func newEtcdWatcher(
 		ctx:          nil,
 		cancel:       nil,
 	}
-	w.emit = func(e watch.Event) { w.outgoing <- e }
+	w.emit = func(e watch.Event) {
+		// Give up on user stop, without this we leak a lot of goroutines in tests.
+		select {
+		case w.outgoing <- e:
+		case <-w.userStop:
+		}
+	}
+	// translate will call done. We need to Add() here because otherwise,
+	// if Stop() gets called before translate gets started, there'd be a
+	// problem.
+	w.wg.Add(1)
 	go w.translate()
 	return w
 }
@@ -210,7 +215,7 @@ func (w *etcdWatcher) etcdWatch(ctx context.Context, client etcd.KeysAPI, key st
 		w.etcdIncoming <- resp
 	}
 }
-
+*/
 // etcdGetInitialWatchState turns an etcd Get request into a watch equivalent
 func etcdGetInitialWatchState(ctx context.Context, client etcd.KeysAPI, key string, recursive bool, quorum bool, incoming chan<- *etcd.Response) (resourceVersion uint64, err error) {
 	opts := etcd.GetOptions{
@@ -252,10 +257,11 @@ func convertRecursiveResponse(node *etcd.Node, response *etcd.Response, incoming
 var (
 	watchChannelHWM HighWaterMark
 )
-
+/*
 // translate pulls stuff from etcd, converts, and pushes out the outgoing channel. Meant to be
 // called as a goroutine.
 func (w *etcdWatcher) translate() {
+	defer w.wg.Done()
 	defer close(w.outgoing)
 	defer utilruntime.HandleCrash()
 
@@ -317,7 +323,7 @@ func (w *etcdWatcher) decodeObject(node *etcd.Node) (runtime.Object, error) {
 	}
 
 	// ensure resource version is set on the object we load from etcd
-	if err := w.versioner.UpdateObject(obj, node.ModifiedIndex); err != nil {
+	if err := w.versioner.UpdateObject(obj, node.Expiration, node.ModifiedIndex); err != nil {
 		utilruntime.HandleError(fmt.Errorf("failure to version api object (%d) %#v: %v", node.ModifiedIndex, obj, err))
 	}
 
@@ -387,6 +393,9 @@ func (w *etcdWatcher) sendModify(res *etcd.Response) {
 	if res.PrevNode != nil && res.PrevNode.Value != "" {
 		// Ignore problems reading the old object.
 		if oldObj, err = w.decodeObject(res.PrevNode); err == nil {
+			if err := w.versioner.UpdateObject(oldObj, res.Node.Expiration, res.Node.ModifiedIndex); err != nil {
+				utilruntime.HandleError(fmt.Errorf("failure to version api object (%d) %#v: %v", res.Node.ModifiedIndex, oldObj, err))
+			}
 			oldObjPasses = w.filter(oldObj)
 		}
 	}
@@ -480,3 +489,4 @@ func (w *etcdWatcher) Stop() {
 	// will be issued.
 	w.wg.Wait()
 }
+*/

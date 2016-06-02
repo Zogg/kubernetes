@@ -205,7 +205,7 @@ func (f *FakeRuntime) SyncPod(pod *api.Pod, _ api.PodStatus, _ *PodStatus, _ []a
 	return
 }
 
-func (f *FakeRuntime) KillPod(pod *api.Pod, runningPod Pod) error {
+func (f *FakeRuntime) KillPod(pod *api.Pod, runningPod Pod, gracePeriodOverride *int64) error {
 	f.Lock()
 	defer f.Unlock()
 
@@ -274,14 +274,6 @@ func (f *FakeRuntime) AttachContainer(containerID ContainerID, stdin io.Reader, 
 
 	f.CalledFunctions = append(f.CalledFunctions, "AttachContainer")
 	return f.Err
-}
-
-func (f *FakeRuntime) RunInContainer(containerID ContainerID, cmd []string) ([]byte, error) {
-	f.Lock()
-	defer f.Unlock()
-
-	f.CalledFunctions = append(f.CalledFunctions, "RunInContainer")
-	return []byte{}, f.Err
 }
 
 func (f *FakeRuntime) GetContainerLogs(pod *api.Pod, containerID ContainerID, logOptions *api.PodLogOptions, stdout, stderr io.Writer) (err error) {

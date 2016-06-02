@@ -47,8 +47,8 @@ func newStorage(t *testing.T) (*REST, *StatusREST, storagefactory.TestServer) {
 }
 
 func validNewJob() *batch.Job {
-	completions := 1
-	parallelism := 1
+	completions := int32(1)
+	parallelism := int32(1)
 	return &batch.Job{
 		ObjectMeta: api.ObjectMeta{
 			Name:      "foo",
@@ -105,7 +105,7 @@ func TestUpdate(t *testing.T) {
 	storage, _, server := newStorage(t)
 	defer server.Terminate(t)
 	test := registrytest.New(t, storage.Store)
-	two := 2
+	two := int32(2)
 	test.TestUpdate(
 		// valid
 		validNewJob(),

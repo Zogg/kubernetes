@@ -17,23 +17,37 @@ limitations under the License.
 package storagebackend
 
 import (
+	"strings"
+
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/consul"
+	consulapi "github.com/hashicorp/consul/api"
 	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 func newConsulStorage(c Config) (storage.Interface, error) {
+	endpoints := c.ServerList
+	for i, s := range endpoints {
+		endpoints[i] = strings.TrimLeft(s, "http://")
+	}
+
 	raw, err := newConsulRawStorage(c)
 	if err != nil {
 		return nil, err
 	}
-	return storage.NewGenericWrapper(raw, c.Codec, c.Prefix, c.DeserializationCacheSize), nil
+	return storage.NewGenericWrapperInt(raw, c.Codec, c.Prefix, c.DeserializationCacheSize), nil
 }
 
 func newConsulRawStorage(c Config) (generic.InterfaceRaw, error) {
-	// TODO: clean up configuration parameter handling
-	internalConfig := &consul.ConsulConfig{
+	client, err := consulapi.NewClient(c.getConsulApiConfig())
+	if err != nil {
+		return nil, err
+	}
+	raw := &consul.ConsulKvStorage {
+		ConsulKv:   *client.KV(),
+		// TODO: make this configurable for multiple servers
+		ServerList:     []string{c.getConsulApiConfig().Address},
 		WaitTimeout: consul.DefaultWaitTimeout,
 	}
-	return internalConfig.NewRawStorage()
+	return raw, nil
 }

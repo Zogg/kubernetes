@@ -37,6 +37,7 @@ import (
 	"k8s.io/kubernetes/cmd/kubelet/app/options"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
+	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	"k8s.io/kubernetes/pkg/client/record"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
@@ -88,8 +89,8 @@ func (f *fakeRuntimeHelper) GetClusterDNS(pod *api.Pod) ([]string, []string, err
 }
 
 // This is not used by docker runtime.
-func (f *fakeRuntimeHelper) GeneratePodHostNameAndDomain(pod *api.Pod) (string, string) {
-	return "", ""
+func (f *fakeRuntimeHelper) GeneratePodHostNameAndDomain(pod *api.Pod) (string, string, error) {
+	return "", "", nil
 }
 
 func (f *fakeRuntimeHelper) GetPodDir(types.UID) string {
@@ -105,7 +106,7 @@ func createTestDockerManager(fakeHTTPClient *fakeHTTP, fakeDocker *FakeDockerCli
 	}
 	fakeRecorder := &record.FakeRecorder{}
 	containerRefManager := kubecontainer.NewRefManager()
-	networkPlugin, _ := network.InitNetworkPlugin([]network.NetworkPlugin{}, "", nettest.NewFakeHost(nil))
+	networkPlugin, _ := network.InitNetworkPlugin([]network.NetworkPlugin{}, "", nettest.NewFakeHost(nil), componentconfig.HairpinNone)
 	dockerManager := NewFakeDockerManager(
 		fakeDocker,
 		fakeRecorder,
@@ -114,7 +115,7 @@ func createTestDockerManager(fakeHTTPClient *fakeHTTP, fakeDocker *FakeDockerCli
 		&cadvisorapi.MachineInfo{},
 		options.GetDefaultPodInfraContainerImage(),
 		0, 0, "",
-		containertest.FakeOS{},
+		&containertest.FakeOS{},
 		networkPlugin,
 		&fakeRuntimeHelper{},
 		fakeHTTPClient,
@@ -407,7 +408,7 @@ func TestKillContainerInPod(t *testing.T) {
 
 	fakeDocker.SetFakeRunningContainers(containers)
 
-	if err := manager.KillContainerInPod(kubecontainer.ContainerID{}, &pod.Spec.Containers[0], pod, "test kill container in pod."); err != nil {
+	if err := manager.KillContainerInPod(kubecontainer.ContainerID{}, &pod.Spec.Containers[0], pod, "test kill container in pod.", nil); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	// Assert the container has been stopped.
@@ -470,14 +471,14 @@ func TestKillContainerInPodWithPreStop(t *testing.T) {
 	containerToKill := containers[0]
 	fakeDocker.SetFakeRunningContainers(containers)
 
-	if err := manager.KillContainerInPod(kubecontainer.ContainerID{}, &pod.Spec.Containers[0], pod, "test kill container with preStop."); err != nil {
+	if err := manager.KillContainerInPod(kubecontainer.ContainerID{}, &pod.Spec.Containers[0], pod, "test kill container with preStop.", nil); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 	// Assert the container has been stopped.
 	if err := fakeDocker.AssertStopped([]string{containerToKill.ID}); err != nil {
 		t.Errorf("container was not stopped correctly: %v", err)
 	}
-	verifyCalls(t, fakeDocker, []string{"list", "create_exec", "start_exec", "stop"})
+	verifyCalls(t, fakeDocker, []string{"list", "inspect_container", "create_exec", "start_exec", "stop"})
 	if !reflect.DeepEqual(expectedCmd, fakeDocker.execCmd) {
 		t.Errorf("expected: %v, got %v", expectedCmd, fakeDocker.execCmd)
 	}
@@ -507,7 +508,7 @@ func TestKillContainerInPodWithError(t *testing.T) {
 	fakeDocker.SetFakeRunningContainers(containers)
 	fakeDocker.InjectError("stop", fmt.Errorf("sample error"))
 
-	if err := manager.KillContainerInPod(kubecontainer.ContainerID{}, &pod.Spec.Containers[0], pod, "test kill container with error."); err == nil {
+	if err := manager.KillContainerInPod(kubecontainer.ContainerID{}, &pod.Spec.Containers[0], pod, "test kill container with error.", nil); err == nil {
 		t.Errorf("expected error, found nil")
 	}
 }
@@ -1107,7 +1108,7 @@ func TestGetRestartCount(t *testing.T) {
 		if cs == nil {
 			t.Fatalf("Can't find status for container %q", containerName)
 		}
-		dm.KillContainerInPod(cs.ID, &pod.Spec.Containers[0], pod, "test container restart count.")
+		dm.KillContainerInPod(cs.ID, &pod.Spec.Containers[0], pod, "test container restart count.", nil)
 	}
 	// Container "bar" starts the first time.
 	// TODO: container lists are expected to be sorted reversely by time.

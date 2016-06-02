@@ -42,8 +42,8 @@ type HandlerRunner interface {
 type RuntimeHelper interface {
 	GenerateRunContainerOptions(pod *api.Pod, container *api.Container, podIP string) (*RunContainerOptions, error)
 	GetClusterDNS(pod *api.Pod) (dnsServers []string, dnsSearches []string, err error)
-	GeneratePodHostNameAndDomain(pod *api.Pod) (hostname string, hostDomain string)
 	GetPodDir(podUID types.UID) string
+	GeneratePodHostNameAndDomain(pod *api.Pod) (hostname string, hostDomain string, err error)
 }
 
 // ShouldContainerBeRestarted checks whether a container needs to be restarted.
@@ -91,12 +91,11 @@ func ConvertPodStatusToRunningPod(podStatus *PodStatus) Pod {
 			continue
 		}
 		container := &Container{
-			ID:      containerStatus.ID,
-			Name:    containerStatus.Name,
-			Image:   containerStatus.Image,
-			Hash:    containerStatus.Hash,
-			Created: containerStatus.CreatedAt.Unix(),
-			State:   containerStatus.State,
+			ID:    containerStatus.ID,
+			Name:  containerStatus.Name,
+			Image: containerStatus.Image,
+			Hash:  containerStatus.Hash,
+			State: containerStatus.State,
 		}
 		runningPod.Containers = append(runningPod.Containers, container)
 	}

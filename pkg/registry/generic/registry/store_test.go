@@ -98,7 +98,7 @@ func hasCreated(t *testing.T, pod *api.Pod) func(runtime.Object) bool {
 func NewTestGenericStoreRegistry(t *testing.T) (storagefactory.TestServer, *Store) {
 	podPrefix := "/pods"
 	server := factory.NewTestClientServer(t)
-	s := storage.NewGenericWrapper( server.NewRawStorage(), testapi.Default.Codec(), etcdtest.PathPrefix(), etcdtest.DeserializationCacheSize )
+	s := storage.NewGenericWrapper( server.NewRawStorage(), testapi.Default.StorageCodec(), etcdtest.PathPrefix(), etcdtest.DeserializationCacheSize )
 	strategy := &testRESTStrategy{api.Scheme, api.SimpleNameGenerator, true, false, true}
 
 	return server, &Store{

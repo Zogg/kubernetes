@@ -706,7 +706,7 @@ func newTestPodForQuota(name string, requests api.ResourceList, limits api.Resou
 			Containers: []api.Container{
 				{
 					Name:  "nginx",
-					Image: "gcr.io/google_containers/pause:2.0",
+					Image: "gcr.io/google_containers/pause-amd64:3.0",
 					Resources: api.ResourceRequirements{
 						Requests: requests,
 						Limits:   limits,
@@ -739,7 +739,7 @@ func newTestPersistentVolumeClaimForQuota(name string) *api.PersistentVolumeClai
 }
 
 // newTestReplicationControllerForQuota returns a simple replication controller
-func newTestReplicationControllerForQuota(name, image string, replicas int) *api.ReplicationController {
+func newTestReplicationControllerForQuota(name, image string, replicas int32) *api.ReplicationController {
 	return &api.ReplicationController{
 		ObjectMeta: api.ObjectMeta{
 			Name: name,

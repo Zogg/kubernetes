@@ -17,47 +17,70 @@ limitations under the License.
 package etcd
 
 import (
+	"reflect"
+	/*
 	"errors"
 	"fmt"
 	"path"
-	"reflect"
+
 	"strings"
+	"net"
+	"net/http"
 	"time"
+
 
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/meta"
 	"k8s.io/kubernetes/pkg/conversion"
+	*/
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
-	"k8s.io/kubernetes/pkg/storage/etcd/metrics"
+	//"k8s.io/kubernetes/pkg/storage/etcd/metrics"
 	etcdutil "k8s.io/kubernetes/pkg/storage/etcd/util"
-	"k8s.io/kubernetes/pkg/util"
+	/*"k8s.io/kubernetes/pkg/util"
 	utilcache "k8s.io/kubernetes/pkg/util/cache"
-	"k8s.io/kubernetes/pkg/watch"
+	"k8s.io/kubernetes/pkg/watch"*/
 
 	etcd "github.com/coreos/etcd/client"
+	/*"github.com/coreos/etcd/pkg/transport"
+	utilnet "k8s.io/kubernetes/pkg/util/net"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
+	*/
 	
 	//"k8s.io/kubernetes/pkg/storage/consul"
 )
 
+// storage.Config object for etcd.
+
 // Creates a new storage interface from the client
 // TODO: deprecate in favor of storage.Config abstraction over time
 func NewEtcdStorage(client etcd.Client, codec runtime.Codec, prefix string, quorum bool, cacheSize int) storage.Interface {
-	/*return &etcdHelper{
-		etcdMembersAPI: etcd.NewMembersAPI(client),
-		etcdKeysAPI:    etcd.NewKeysAPI(client),
-		codec:          codec,
-		versioner:      APIObjectVersioner{},
-		copier:         api.Scheme,
-		pathPrefix:     path.Join("/", prefix),
-		quorum:         quorum,
-		cache:          utilcache.NewCache(cacheSize),
-	}*/
-	return storage.NewGenericWrapper(NewEtcdRawStorage(client, quorum), codec, prefix, cacheSize)
+	// TODO: uncomment this
+	//return &etcdHelper{
+	//	etcdMembersAPI: etcd.NewMembersAPI(client),
+	//	etcdKeysAPI:    etcd.NewKeysAPI(client),
+	//	codec:          codec,
+	//	versioner:      APIObjectVersioner{},
+	//	copier:         api.Scheme,
+	//	pathPrefix:     path.Join("/", prefix),
+	//	quorum:         quorum,
+	//	cache:          utilcache.NewCache(cacheSize),
+	//}
+	
+	//config := &consul.ConsulKvStorageConfig{
+	//	Config:         consul.ConsulConfig{
+	//		WaitTimeout:    10 * time.Second,			
+	//	},
+	//	Codec:          codec,
+	//	Prefix:         prefix,
+	//}
+	//stor, _ := config.NewStorage()
+	//return stor
+	
+	return storage.NewGenericWrapperInt(NewEtcdRawStorage(client, quorum), codec, prefix, cacheSize)
 }
-
+/*
 // etcdHelper is the reference implementation of storage.Interface.
 type etcdHelper struct {
 	etcdMembersAPI etcd.MembersAPI
@@ -316,7 +339,7 @@ func (h *etcdHelper) extractObj(response *etcd.Response, inErr error, objPtr run
 		return body, nil, fmt.Errorf("unable to decode object %s into %v", gvk.String(), reflect.TypeOf(objPtr))
 	}
 	// being unable to set the version does not prevent the object from being extracted
-	_ = h.versioner.UpdateObject(objPtr, node.ModifiedIndex)
+	_ = h.versioner.UpdateObject(objPtr, node.Expiration, node.ModifiedIndex)
 	return body, node, err
 }
 
@@ -390,7 +413,7 @@ func (h *etcdHelper) decodeNodeList(nodes []*etcd.Node, filter storage.FilterFun
 				return err
 			}
 			// being unable to set the version does not prevent the object from being extracted
-			_ = h.versioner.UpdateObject(obj, node.ModifiedIndex)
+			_ = h.versioner.UpdateObject(obj, node.Expiration, node.ModifiedIndex)
 			if filter(obj) {
 				v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
 			}
@@ -512,7 +535,7 @@ func (h *etcdHelper) GuaranteedUpdate(ctx context.Context, key string, ptrToType
 		}
 
 		// Since update object may have a resourceVersion set, we need to clear it here.
-		if err := h.versioner.UpdateObject(ret, 0); err != nil {
+		if err := h.versioner.UpdateObject(ret, meta.Expiration, 0); err != nil {
 			return errors.New("resourceVersion cannot be set on objects store in etcd")
 		}
 
@@ -569,6 +592,8 @@ func (h *etcdHelper) prefixEtcdKey(key string) string {
 	return path.Join(h.pathPrefix, key)
 }
 
+*/
+
 // etcdCache defines interface used for caching objects stored in etcd. Objects are keyed by
 // their Node.ModifiedIndex, which is unique across all types.
 // All implementations must be thread-safe.
@@ -580,7 +605,7 @@ type etcdCache interface {
 func getTypeName(obj interface{}) string {
 	return reflect.TypeOf(obj).String()
 }
-
+/*
 func (h *etcdHelper) getFromCache(index uint64, filter storage.FilterFunc) (runtime.Object, bool) {
 	startTime := time.Now()
 	defer func() {
@@ -621,6 +646,8 @@ func (h *etcdHelper) addToCache(index uint64, obj runtime.Object) {
 		metrics.ObserveNewEntry()
 	}
 }
+
+*/
 
 func toStorageErr(err error, key string, rv int64) error {
 	if err == nil {

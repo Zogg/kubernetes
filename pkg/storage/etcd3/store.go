@@ -17,33 +17,15 @@ limitations under the License.
 package etcd3
 
 import (
-	"bytes"
-	"errors"
-	"fmt"
-	"path"
-	"reflect"
 	"strings"
+	"path"
 
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/meta"
-	"k8s.io/kubernetes/pkg/conversion"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
-	"k8s.io/kubernetes/pkg/storage/etcd"
-	"k8s.io/kubernetes/pkg/watch"
 
 	"github.com/coreos/etcd/clientv3"
-	"github.com/golang/glog"
-	"golang.org/x/net/context"
+	"k8s.io/kubernetes/pkg/conversion"
 )
-
-type store struct {
-	client     *clientv3.Client
-	codec      runtime.Codec
-	versioner  storage.Versioner
-	pathPrefix string
-	watcher    *watcher
-}
 
 type elemForDecode struct {
 	data []byte
@@ -58,21 +40,16 @@ type objState struct {
 }
 
 // New returns an etcd3 implementation of storage.Interface.
-func New(c *clientv3.Client, codec runtime.Codec, prefix string) storage.Interface {
-	return newStore(c, codec, prefix)
+func New(c *clientv3.Client, codec runtime.Codec, prefix string, deserializationCacheSize int) storage.Interface {
+	return storage.NewGenericWrapperInt(NewRaw(c, codec, prefix), codec, prefix, deserializationCacheSize)
 }
 
-func newStore(c *clientv3.Client, codec runtime.Codec, prefix string) *store {
-	versioner := etcd.APIObjectVersioner{}
-	return &store{
-		client:     c,
-		versioner:  versioner,
-		codec:      codec,
-		pathPrefix: prefix,
-		watcher:    newWatcher(c, codec, versioner),
-	}
+func newStore(c *clientv3.Client, codec runtime.Codec, prefix string) *rawStore {
+	dataStore := newRawStore(c, codec, prefix)
+	return dataStore
 }
 
+/*
 // Backends implements storage.Interface.Backends.
 func (s *store) Backends(ctx context.Context) []string {
 	resp, err := s.client.MemberList(ctx)
@@ -375,20 +352,26 @@ func (s *store) getState(getResp *clientv3.GetResponse, key string, v reflect.Va
 
 func (s *store) updateState(st *objState, userUpdate storage.UpdateFunc) (runtime.Object, uint64, error) {
 	ret, ttlPtr, err := userUpdate(st.obj, *st.meta)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	version, err := s.versioner.ObjectResourceVersion(ret)
 	if err != nil {
 		return nil, 0, err
 	}
-	if version != 0 {
-		// We cannot store object with resourceVersion in etcd. We need to reset it.
-		if err := s.versioner.UpdateObject(ret, 0); err != nil {
-			return nil, 0, fmt.Errorf("UpdateObject failed: %v", err)
-		}
-	}
 	var ttl uint64
+	var expiration *time.Time
 	if ttlPtr != nil {
 		ttl = *ttlPtr
+		expireTime := time.Now().Add(time.Duration(ttl) * time.Second)
+		expiration = &expireTime
+	}
+	if version != 0 {
+		// We cannot store object with resourceVersion in etcd. We need to reset it.
+		if err := s.versioner.UpdateObject(ret, expiration, 0); err != nil {
+			return nil, 0, fmt.Errorf("UpdateObject failed: %v", err)
+		}
 	}
 	return ret, ttl, nil
 }
@@ -407,6 +390,7 @@ func (s *store) ttlOpts(ctx context.Context, ttl int64) ([]clientv3.OpOption, er
 	}
 	return []clientv3.OpOption{clientv3.WithLease(clientv3.LeaseID(lcr.ID))}, nil
 }
+*/
 
 func keyWithPrefix(prefix, key string) string {
 	if strings.HasPrefix(key, prefix) {
@@ -414,6 +398,7 @@ func keyWithPrefix(prefix, key string) string {
 	}
 	return path.Join(prefix, key)
 }
+
 
 // decode decodes value of bytes into object. It will also set the object resource version to rev.
 // On success, objPtr would be set to the object.
@@ -429,7 +414,7 @@ func decode(codec runtime.Codec, versioner storage.Versioner, value []byte, objP
 	versioner.UpdateObject(objPtr, uint64(rev))
 	return nil
 }
-
+/*
 // decodeList decodes a list of values into a list of objects, with resource version set to corresponding rev.
 // On success, ListPtr would be set to the list of objects.
 func decodeList(elems []*elemForDecode, filter storage.FilterFunc, ListPtr interface{}, codec runtime.Codec, versioner storage.Versioner) error {
@@ -443,7 +428,7 @@ func decodeList(elems []*elemForDecode, filter storage.FilterFunc, ListPtr inter
 			return err
 		}
 		// being unable to set the version does not prevent the object from being extracted
-		versioner.UpdateObject(obj, elem.rev)
+		versioner.UpdateObject(obj, nil, elem.rev)
 		if filter(obj) {
 			v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
 		}
@@ -465,7 +450,4 @@ func checkPreconditions(key string, preconditions *storage.Preconditions, out ru
 	}
 	return nil
 }
-
-func notFound(key string) clientv3.Cmp {
-	return clientv3.Compare(clientv3.ModRevision(key), "=", 0)
-}
+*/
