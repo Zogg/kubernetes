@@ -19,7 +19,7 @@ package framework
 import (
 	"github.com/golang/glog"
 	consulapi "github.com/hashicorp/consul/api"
-	consulstorage "k8s.io/kubernetes/pkg/storage/consul"
+	// consulstorage "k8s.io/kubernetes/pkg/storage/consul"
 )
 
 // If you need to start an consul instance by hand, you also need to insert a key
@@ -37,7 +37,7 @@ func NewConsulClient() consulapi.KV {
 	if err != nil {
 		glog.Fatalf("unable to connect to consul for testing: %v", err)
 	}
-	return client
+	return *client.KV()
 }
 
 /*
@@ -78,7 +78,8 @@ func NewExtensionsConsulStorage(client consulapi) storage.Interface {
 
 func RequireConsul() {
 	client := NewConsulClient()
-	if _, err := client.Get("/", 0); err != nil {
+	_, _, err := client.Get("/", nil)
+	if err != nil {
 		glog.Fatalf("unable to connect to consul for testing: %v", err)
 	}
 }
