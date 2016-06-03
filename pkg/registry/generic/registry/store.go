@@ -254,7 +254,7 @@ func (e *Store) Update(ctx api.Context, obj runtime.Object) (runtime.Object, boo
 		return nil, false, err
 	}
 	doUnconditionalUpdate := resourceVersion == 0 && e.UpdateStrategy.AllowUnconditionalUpdate()
-	// TODO: expose TTL
+	// TODO: expose TTL, apply below twice
 	creating := false
 	out := e.NewFunc()
 	meta, err := api.ObjectMetaFor(obj)

@@ -21,13 +21,14 @@ import (
 
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
+	consulapi "github.com/hashicorp/consul/api"
 	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 const (
-	StorageTypeUnset = ""
-	StorageTypeETCD2 = "etcd2"
-	StorageTypeETCD3 = "etcd3"
+	StorageTypeUnset   = ""
+	StorageTypeETCD2   = "etcd2"
+	StorageTypeETCD3   = "etcd3"
 	StorageTypeConsul = "consul"
 )
 
@@ -71,16 +72,37 @@ func Create(c Config) (storage.Interface, error) {
 	}
 }
 
+
+// Create creates a storage backend based on given config.
 func CreateRaw(c Config) (generic.InterfaceRaw, error) {
 	switch c.Type {
 	case StorageTypeUnset, StorageTypeETCD2:
 		return newETCD2RawStorage(c)
 	case StorageTypeETCD3:
-		// TODO: implement ETCD3 raw-storage
-		return nil, fmt.Errorf("storage-raw etcd3 not yet implemented")
+		// TODO: We have the following features to implement:
+		// - Support secure connection by using key, cert, and CA files.
+		// - Honor "https" scheme to support secure connection in gRPC.
+		// - Support non-quorum read.
+		return newETCD3RawStorage(c)
 	case StorageTypeConsul:
 		return newConsulRawStorage(c)
 	default:
 		return nil, fmt.Errorf("unknown storage type: %s", c.Type)
 	}
+}
+
+/*
+type ConsulConfig struct {
+	// TODO add specific configuration values for k8s to pass to consul client
+	WaitTimeout time.Duration
+}
+*/
+
+func (c *Config)  getConsulApiConfig() *consulapi.Config {
+	config := consulapi.DefaultConfig()
+
+	// TODO do stuff to propagate configuration values from our structure
+	// to theirs
+
+	return config
 }

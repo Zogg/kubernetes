@@ -47,7 +47,7 @@ func (r *Runtime) PullImage(image kubecontainer.ImageSpec, pullSecrets []api.Sec
 	img := image.Image
 	// TODO(yifan): The credential operation is a copy from dockertools package,
 	// Need to resolve the code duplication.
-	repoToPull, _, err := parsers.ParseImageName(img)
+	repoToPull, _, _, err := parsers.ParseImageName(img)
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func (r *Runtime) PullImage(image kubecontainer.ImageSpec, pullSecrets []api.Sec
 		return err
 	}
 
-	if _, err := r.runCommand("fetch", dockerPrefix+img); err != nil {
+	if _, err := r.cli.RunCommand("fetch", dockerPrefix+img); err != nil {
 		glog.Errorf("Failed to fetch: %v", err)
 		return err
 	}
@@ -104,7 +104,7 @@ func (r *Runtime) RemoveImage(image kubecontainer.ImageSpec) error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.runCommand("image", "rm", imageID); err != nil {
+	if _, err := r.cli.RunCommand("image", "rm", imageID); err != nil {
 		return err
 	}
 	return nil
@@ -142,7 +142,7 @@ func (s sortByImportTime) Less(i, j int) bool { return s[i].ImportTimestamp < s[
 // will return the result reversely sorted by the import time, so that the latest
 // image comes first.
 func (r *Runtime) listImages(image string, detail bool) ([]*rktapi.Image, error) {
-	repoToPull, tag, err := parsers.ParseImageName(image)
+	repoToPull, tag, _, err := parsers.ParseImageName(image)
 	if err != nil {
 		return nil, err
 	}
@@ -226,4 +226,18 @@ func (r *Runtime) writeDockerAuthConfig(image string, credsSlice []credentialpro
 		return err
 	}
 	return nil
+}
+
+// ImageStats returns the image stat (total storage bytes).
+func (r *Runtime) ImageStats() (*kubecontainer.ImageStats, error) {
+	var imageStat kubecontainer.ImageStats
+	listResp, err := r.apisvc.ListImages(context.Background(), &rktapi.ListImagesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("couldn't list images: %v", err)
+	}
+
+	for _, image := range listResp.Images {
+		imageStat.TotalStorageBytes = imageStat.TotalStorageBytes + uint64(image.Size)
+	}
+	return &imageStat, nil
 }

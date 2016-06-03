@@ -543,7 +543,7 @@ func TestDeleteWithRetry(t *testing.T) {
 	//helper.etcdKeysAPI = fake
 
 	raw := NewEtcdRawStorage(server.Client, false).(*etcdLowLevel)
-	helper := storage.NewGenericWrapper(raw, testapi.Default.Codec(), prefix)
+	helper := storage.NewGenericWrapperInt(raw, testapi.Default.Codec(), prefix)
 	fake := &fakeDeleteKeysAPI{KeysAPI: raw.etcdKeysAPI, fakeGetCap: expectedRetries, fakeGetFunc: fakeGet}
 	raw.etcdKeysAPI = fake
 

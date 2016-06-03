@@ -19,9 +19,10 @@ package predicates
 import "fmt"
 
 const (
-	podCountResourceName string = "PodCount"
-	cpuResourceName      string = "CPU"
-	memoryResoureceName  string = "Memory"
+	podCountResourceName  string = "PodCount"
+	cpuResourceName       string = "CPU"
+	memoryResoureceName   string = "Memory"
+	nvidiaGpuResourceName string = "NvidiaGpu"
 )
 
 var (
@@ -30,6 +31,7 @@ var (
 	ErrDiskConflict              = newPredicateFailureError("NoDiskConflict")
 	ErrVolumeZoneConflict        = newPredicateFailureError("NoVolumeZoneConflict")
 	ErrNodeSelectorNotMatch      = newPredicateFailureError("MatchNodeSelector")
+	ErrPodAffinityNotMatch       = newPredicateFailureError("MatchInterPodAffinity")
 	ErrPodNotMatchHostName       = newPredicateFailureError("HostName")
 	ErrPodNotFitsHostPorts       = newPredicateFailureError("PodFitsHostPorts")
 	ErrNodeLabelPresenceViolated = newPredicateFailureError("CheckNodeLabelPresence")

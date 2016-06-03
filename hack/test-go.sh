@@ -31,7 +31,6 @@ kube::test::find_dirs() {
           -path './_artifacts/*' \
           -o -path './_output/*' \
           -o -path './_gopath/*' \
-          -o -path './Godeps/*' \
           -o -path './contrib/podex/*' \
           -o -path './output/*' \
           -o -path './release/*' \
@@ -40,12 +39,13 @@ kube::test::find_dirs() {
           -o -path './test/e2e_node/*' \
           -o -path './test/integration/*' \
           -o -path './test/component/scheduler/perf/*' \
+          -o -path './third_party/*'\
+          -o -path './vendor/*'\
         \) -prune \
       \) -name '*_test.go' -print0 | xargs -0n1 dirname | sed 's|^\./||' | sort -u
   )
 }
 
-# -covermode=atomic becomes default with -race in Go >=1.3
 KUBE_TIMEOUT=${KUBE_TIMEOUT:--timeout 120s}
 KUBE_COVER=${KUBE_COVER:-n} # set to 'y' to enable coverage collection
 KUBE_COVERMODE=${KUBE_COVERMODE:-atomic}
@@ -58,7 +58,7 @@ KUBE_GOVERALLS_BIN=${KUBE_GOVERALLS_BIN:-}
 # Lists of API Versions of each groups that should be tested, groups are
 # separated by comma, lists are separated by semicolon. e.g.,
 # "v1,compute/v1alpha1,experimental/v1alpha2;v1,compute/v2,experimental/v1alpha3"
-KUBE_TEST_API_VERSIONS=${KUBE_TEST_API_VERSIONS:-"v1,extensions/v1beta1,metrics/v1alpha1,federation/v1alpha1;v1,autoscaling/v1,batch/v1,extensions/v1beta1,apps/v1alpha1,metrics/v1alpha1,federation/v1alpha1"}
+KUBE_TEST_API_VERSIONS=${KUBE_TEST_API_VERSIONS:-"v1,extensions/v1beta1,metrics/v1alpha1,federation/v1alpha1;v1,autoscaling/v1,batch/v1,batch/v2alpha1,extensions/v1beta1,apps/v1alpha1,metrics/v1alpha1,federation/v1alpha1,policy/v1alpha1"}
 # once we have multiple group supports
 # Run tests with the standard (registry) and a custom etcd prefix
 # (kubernetes.io/registry).

@@ -32,6 +32,7 @@ import (
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"k8s.io/kubernetes/cmd/kubelet/app/options"
 	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	"k8s.io/kubernetes/pkg/client/record"
 	"k8s.io/kubernetes/pkg/credentialprovider"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
@@ -40,7 +41,6 @@ import (
 	nettest "k8s.io/kubernetes/pkg/kubelet/network/testing"
 	"k8s.io/kubernetes/pkg/types"
 	hashutil "k8s.io/kubernetes/pkg/util/hash"
-	"k8s.io/kubernetes/pkg/util/parsers"
 )
 
 func verifyCalls(t *testing.T, fakeDocker *FakeDockerClient, calls []string) {
@@ -156,26 +156,20 @@ func TestContainerNaming(t *testing.T) {
 	}
 }
 
-func TestParseImageName(t *testing.T) {
-	tests := []struct {
-		imageName string
-		name      string
-		tag       string
+func TestApplyDefaultImageTag(t *testing.T) {
+	for _, testCase := range []struct {
+		Input  string
+		Output string
 	}{
-		{"ubuntu", "ubuntu", "latest"},
-		{"ubuntu:2342", "ubuntu", "2342"},
-		{"ubuntu:latest", "ubuntu", "latest"},
-		{"foo/bar:445566", "foo/bar", "445566"},
-		{"registry.example.com:5000/foobar", "registry.example.com:5000/foobar", "latest"},
-		{"registry.example.com:5000/foobar:5342", "registry.example.com:5000/foobar", "5342"},
-		{"registry.example.com:5000/foobar:latest", "registry.example.com:5000/foobar", "latest"},
-	}
-	for _, test := range tests {
-		name, tag, err := parsers.ParseImageName(test.imageName)
+		{Input: "root", Output: "root:latest"},
+		{Input: "root:tag", Output: "root:tag"},
+		{Input: "root@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", Output: "root@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+	} {
+		image, err := applyDefaultImageTag(testCase.Input)
 		if err != nil {
-			t.Errorf("ParseImageName(%s) failed: %v", test.imageName, err)
-		} else if name != test.name || tag != test.tag {
-			t.Errorf("Expected name/tag: %s/%s, got %s/%s", test.name, test.tag, name, tag)
+			t.Errorf("applyDefaultTag(%s) failed: %v", testCase.Input, err)
+		} else if image != testCase.Output {
+			t.Errorf("Expected image reference: %q, got %q", testCase.Output, image)
 		}
 	}
 }
@@ -657,9 +651,9 @@ func TestFindContainersByPod(t *testing.T) {
 		},
 	}
 	fakeClient := NewFakeDockerClient()
-	np, _ := network.InitNetworkPlugin([]network.NetworkPlugin{}, "", nettest.NewFakeHost(nil))
+	np, _ := network.InitNetworkPlugin([]network.NetworkPlugin{}, "", nettest.NewFakeHost(nil), componentconfig.HairpinNone)
 	// image back-off is set to nil, this test should not pull images
-	containerManager := NewFakeDockerManager(fakeClient, &record.FakeRecorder{}, nil, nil, &cadvisorapi.MachineInfo{}, options.GetDefaultPodInfraContainerImage(), 0, 0, "", containertest.FakeOS{}, np, nil, nil, nil)
+	containerManager := NewFakeDockerManager(fakeClient, &record.FakeRecorder{}, nil, nil, &cadvisorapi.MachineInfo{}, options.GetDefaultPodInfraContainerImage(), 0, 0, "", &containertest.FakeOS{}, np, nil, nil, nil)
 	for i, test := range tests {
 		fakeClient.RunningContainerList = test.runningContainerList
 		fakeClient.ExitedContainerList = test.exitedContainerList
@@ -680,37 +674,29 @@ func TestFindContainersByPod(t *testing.T) {
 }
 
 func TestMakePortsAndBindings(t *testing.T) {
+	portMapping := func(container, host int, protocol api.Protocol, ip string) kubecontainer.PortMapping {
+		return kubecontainer.PortMapping{
+			ContainerPort: container,
+			HostPort:      host,
+			Protocol:      protocol,
+			HostIP:        ip,
+		}
+	}
+
+	portBinding := func(port, ip string) dockernat.PortBinding {
+		return dockernat.PortBinding{
+			HostPort: port,
+			HostIP:   ip,
+		}
+	}
+
 	ports := []kubecontainer.PortMapping{
-		{
-			ContainerPort: 80,
-			HostPort:      8080,
-			HostIP:        "127.0.0.1",
-		},
-		{
-			ContainerPort: 443,
-			HostPort:      443,
-			Protocol:      "tcp",
-		},
-		{
-			ContainerPort: 444,
-			HostPort:      444,
-			Protocol:      "udp",
-		},
-		{
-			ContainerPort: 445,
-			HostPort:      445,
-			Protocol:      "foobar",
-		},
-		{
-			ContainerPort: 443,
-			HostPort:      446,
-			Protocol:      "tcp",
-		},
-		{
-			ContainerPort: 443,
-			HostPort:      446,
-			Protocol:      "udp",
-		},
+		portMapping(80, 8080, "", "127.0.0.1"),
+		portMapping(443, 443, "tcp", ""),
+		portMapping(444, 444, "udp", ""),
+		portMapping(445, 445, "foobar", ""),
+		portMapping(443, 446, "tcp", ""),
+		portMapping(443, 446, "udp", ""),
 	}
 
 	exposedPorts, bindings := makePortsAndBindings(ports)
@@ -731,38 +717,20 @@ func TestMakePortsAndBindings(t *testing.T) {
 	// Construct expected bindings
 	expectPortBindings := map[string][]dockernat.PortBinding{
 		"80/tcp": {
-			dockernat.PortBinding{
-				HostPort: "8080",
-				HostIP:   "127.0.0.1",
-			},
+			portBinding("8080", "127.0.0.1"),
 		},
 		"443/tcp": {
-			dockernat.PortBinding{
-				HostPort: "443",
-				HostIP:   "",
-			},
-			dockernat.PortBinding{
-				HostPort: "446",
-				HostIP:   "",
-			},
+			portBinding("443", ""),
+			portBinding("446", ""),
 		},
 		"443/udp": {
-			dockernat.PortBinding{
-				HostPort: "446",
-				HostIP:   "",
-			},
+			portBinding("446", ""),
 		},
 		"444/udp": {
-			dockernat.PortBinding{
-				HostPort: "444",
-				HostIP:   "",
-			},
+			portBinding("444", ""),
 		},
 		"445/tcp": {
-			dockernat.PortBinding{
-				HostPort: "445",
-				HostIP:   "",
-			},
+			portBinding("445", ""),
 		},
 	}
 

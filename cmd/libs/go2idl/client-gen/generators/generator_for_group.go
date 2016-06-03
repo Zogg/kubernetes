@@ -111,12 +111,14 @@ func (g *genGroup) GenerateType(c *generator.Context, t *types.Type, w io.Writer
 	} else {
 		sw.Do(setClientDefaultsTemplate, m)
 	}
+	sw.Do(getRESTClient, m)
 
 	return sw.Error()
 }
 
 var groupInterfaceTemplate = `
 type $.Group$Interface interface {
+    GetRESTClient() *$.RESTClient|raw$
     $range .types$ $.|publicPlural$Getter
     $end$
 }
@@ -168,6 +170,17 @@ func NewForConfigOrDie(c *$.Config|raw$) *$.Group$Client {
 }
 `
 
+var getRESTClient = `
+// GetRESTClient returns a RESTClient that is used to communicate
+// with API server by this client implementation.
+func (c *$.Group$Client) GetRESTClient() *$.RESTClient|raw$ {
+	if c == nil {
+		return nil
+	}
+	return c.RESTClient
+}
+`
+
 var newClientForRESTClientTemplate = `
 // New creates a new $.Group$Client for the given RESTClient.
 func New(c *$.RESTClient|raw$) *$.Group$Client {
@@ -191,7 +204,8 @@ func setConfigDefaults(config *$.Config|raw$) error {
 	config.GroupVersion = &copyGroupVersion
 	//}
 
-	config.Codec = $.codecs|raw$.LegacyCodec(*config.GroupVersion)
+	config.NegotiatedSerializer = $.codecs|raw$
+
 	if config.QPS == 0 {
 		config.QPS = 5
 	}
@@ -219,11 +233,7 @@ func setConfigDefaults(config *$.Config|raw$) error {
 	config.GroupVersion = &copyGroupVersion
 	//}
 
-	codec, ok := $.codecs|raw$.SerializerForFileExtension("json")
-	if !ok {
-		return $.Errorf|raw$("unable to find serializer for JSON")
-	}
-	config.Codec = codec
+	config.NegotiatedSerializer = $.codecs|raw$
 
 	if config.QPS == 0 {
 		config.QPS = 5

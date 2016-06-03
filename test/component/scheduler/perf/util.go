@@ -62,7 +62,7 @@ func mustSetupScheduler() (schedulerConfigFactory *factory.ConfigFactory, destro
 		Burst:         5000,
 	})
 
-	schedulerConfigFactory = factory.NewConfigFactory(c, api.DefaultSchedulerName)
+	schedulerConfigFactory = factory.NewConfigFactory(c, api.DefaultSchedulerName, api.DefaultHardPodAffinitySymmetricWeight, api.DefaultFailureDomains)
 	schedulerConfig, err := schedulerConfigFactory.Create()
 	if err != nil {
 		panic("Couldn't create scheduler config")
@@ -75,8 +75,7 @@ func mustSetupScheduler() (schedulerConfigFactory *factory.ConfigFactory, destro
 	destroyFunc = func() {
 		glog.Infof("destroying")
 		close(schedulerConfig.StopEverything)
-		// TODO: Uncomment when fix #19254
-		// s.Close()
+		s.Close()
 		glog.Infof("destroyed")
 	}
 	return
@@ -138,7 +137,7 @@ func makePodsFromRC(c client.Interface, name string, podCount int) {
 			Name: name,
 		},
 		Spec: api.ReplicationControllerSpec{
-			Replicas: podCount,
+			Replicas: int32(podCount),
 			Selector: map[string]string{"name": name},
 			Template: &api.PodTemplateSpec{
 				ObjectMeta: api.ObjectMeta{

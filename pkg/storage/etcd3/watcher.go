@@ -17,38 +17,26 @@ limitations under the License.
 package etcd3
 
 import (
-	"fmt"
-	"net/http"
-	"strings"
-	"sync"
+	_ "strings"
 
-	"k8s.io/kubernetes/pkg/api/unversioned"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
-	"k8s.io/kubernetes/pkg/watch"
+	_ "k8s.io/kubernetes/pkg/watch"
 
 	"github.com/coreos/etcd/clientv3"
-	etcdrpc "github.com/coreos/etcd/etcdserver/api/v3rpc/rpctypes"
-	"github.com/golang/glog"
 	"golang.org/x/net/context"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-)
-
-const (
-	// We have set a buffer in order to reduce times of context switches.
-	incomingBufSize = 100
-	outgoingBufSize = 100
+	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 type watcher struct {
 	client    *clientv3.Client
 	codec     runtime.Codec
 	versioner storage.Versioner
+	store     *rawStore
 }
 
 // watchChan implements watch.Interface.
-type watchChan struct {
+/*type watchChan struct {
 	watcher           *watcher
 	key               string
 	initialRev        int64
@@ -60,12 +48,14 @@ type watchChan struct {
 	resultChan        chan watch.Event
 	errChan           chan error
 }
+*/
 
-func newWatcher(client *clientv3.Client, codec runtime.Codec, versioner storage.Versioner) *watcher {
+func newWatcher(client *clientv3.Client, dataStore *rawStore, codec runtime.Codec, versioner storage.Versioner) *watcher {
 	return &watcher{
 		client:    client,
 		codec:     codec,
 		versioner: versioner,
+		store:     dataStore,
 	}
 }
 
@@ -76,15 +66,17 @@ func newWatcher(client *clientv3.Client, codec runtime.Codec, versioner storage.
 // If recursive is false, it watches on given key.
 // If recursive is true, it watches any children and directories under the key, excluding the root key itself.
 // filter must be non-nil. Only if filter returns true will the changes be returned.
-func (w *watcher) Watch(ctx context.Context, key string, rev int64, recursive bool, filter storage.FilterFunc) (watch.Interface, error) {
-	if recursive && !strings.HasSuffix(key, "/") {
-		key += "/"
-	}
-	wc := w.createWatchChan(ctx, key, rev, recursive, filter)
-	go wc.run()
-	return wc, nil
-}
+//func (w *watcher) Watch(ctx context.Context, key string, rev uint64, recursive bool, filter storage.FilterFunc) (watch.Interface, error) {
+//	if recursive && !strings.HasSuffix(key, "/") {
+//		key += "/"
+//	}
+//	wc := w.createWatchChanRaw(ctx, key, int64(rev), recursive)
+//	go wc.run()
+//	genericStore := storage.NewGenericWrapper(w.store, w.codec, "") // TODO: confirm prefix is correct
+//	return storage.NewGenericWatcher(wc, genericStore, filter), nil
+//}
 
+/*
 func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, recursive bool, filter storage.FilterFunc) *watchChan {
 	wc := &watchChan{
 		watcher:           w,
@@ -99,7 +91,22 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, re
 	wc.ctx, wc.cancel = context.WithCancel(ctx)
 	return wc
 }
+*/
 
+func (w *watcher) createWatchChanRaw(ctx context.Context, key string, rev int64, recursive bool) *watchChanRaw {
+	wc := &watchChanRaw{
+		watcher:           w,
+		key:               key,
+		initialRev:        rev,
+		recursive:         recursive,
+		incomingEventChan: make(chan *event, incomingBufSize),
+		resultChan:        make(chan generic.RawEvent, outgoingBufSize),
+		errChan:           make(chan error, 1),
+	}
+	wc.ctx, wc.cancel = context.WithCancel(ctx)
+	return wc
+}
+/*
 func (wc *watchChan) run() {
 	go wc.startWatching()
 
@@ -110,11 +117,14 @@ func (wc *watchChan) run() {
 	select {
 	case err := <-wc.errChan:
 		errResult := parseError(err)
-		wc.cancel()
-		// error result is guaranteed to be received by user before closing ResultChan.
 		if errResult != nil {
-			wc.resultChan <- *errResult
+			// error result is guaranteed to be received by user before closing ResultChan.
+			select {
+			case wc.resultChan <- *errResult:
+			case <-wc.ctx.Done(): // user has given up all results
+			}
 		}
+		wc.cancel()
 	case <-wc.ctx.Done():
 	}
 	// we need to wait until resultChan wouldn't be sent to anymore
@@ -319,7 +329,11 @@ func prepareObjs(ctx context.Context, e *event, client *clientv3.Client, codec r
 		if err != nil {
 			return nil, nil, err
 		}
-		oldObj, err = decodeObj(codec, versioner, getResp.Kvs[0].Value, getResp.Kvs[0].ModRevision)
+		// Note that this sends the *old* object with the etcd revision for the time at
+		// which it gets deleted.
+		// We assume old object is returned only in Deleted event. Users (e.g. cacher) need
+		// to have larger than previous rev to tell the ordering.
+		oldObj, err = decodeObj(codec, versioner, getResp.Kvs[0].Value, e.rev)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -333,8 +347,9 @@ func decodeObj(codec runtime.Codec, versioner storage.Versioner, data []byte, re
 		return nil, err
 	}
 	// ensure resource version is set on the object we load from etcd
-	if err := versioner.UpdateObject(obj, uint64(rev)); err != nil {
+	if err := versioner.UpdateObject(obj, nil, uint64(rev)); err != nil {
 		return nil, fmt.Errorf("failure to version api object (%d) %#v: %v", rev, obj, err)
 	}
 	return obj, nil
 }
+*/

@@ -105,7 +105,7 @@ func TestPrinter(t *testing.T) {
 		},
 	}
 	emptyListTest := &api.PodList{}
-	testapi, err := api.Scheme.ConvertToVersion(podTest, testapi.Default.GroupVersion().String())
+	testapi, err := api.Scheme.ConvertToVersion(podTest, *testapi.Default.GroupVersion())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1342,7 +1342,7 @@ func TestPrintDaemonSet(t *testing.T) {
 }
 
 func TestPrintJob(t *testing.T) {
-	completions := 2
+	completions := int32(2)
 	tests := []struct {
 		job    batch.Job
 		expect string

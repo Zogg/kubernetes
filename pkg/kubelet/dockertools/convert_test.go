@@ -44,19 +44,17 @@ func TestMapState(t *testing.T) {
 
 func TestToRuntimeContainer(t *testing.T) {
 	original := &dockertypes.Container{
-		ID:      "ab2cdf",
-		Image:   "bar_image",
-		Created: 12345,
-		Names:   []string{"/k8s_bar.5678_foo_ns_1234_42"},
-		Status:  "Up 5 hours",
+		ID:     "ab2cdf",
+		Image:  "bar_image",
+		Names:  []string{"/k8s_bar.5678_foo_ns_1234_42"},
+		Status: "Up 5 hours",
 	}
 	expected := &kubecontainer.Container{
-		ID:      kubecontainer.ContainerID{Type: "docker", ID: "ab2cdf"},
-		Name:    "bar",
-		Image:   "bar_image",
-		Hash:    0x5678,
-		Created: 12345,
-		State:   kubecontainer.ContainerStateRunning,
+		ID:    kubecontainer.ContainerID{Type: "docker", ID: "ab2cdf"},
+		Name:  "bar",
+		Image: "bar_image",
+		Hash:  0x5678,
+		State: kubecontainer.ContainerStateRunning,
 	}
 
 	actual, err := toRuntimeContainer(original)
@@ -72,12 +70,14 @@ func TestToRuntimeImage(t *testing.T) {
 	original := &dockertypes.Image{
 		ID:          "aeeea",
 		RepoTags:    []string{"abc", "def"},
+		RepoDigests: []string{"123", "456"},
 		VirtualSize: 1234,
 	}
 	expected := &kubecontainer.Image{
-		ID:       "aeeea",
-		RepoTags: []string{"abc", "def"},
-		Size:     1234,
+		ID:          "aeeea",
+		RepoTags:    []string{"abc", "def"},
+		RepoDigests: []string{"123", "456"},
+		Size:        1234,
 	}
 
 	actual, err := toRuntimeImage(original)

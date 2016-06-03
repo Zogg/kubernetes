@@ -49,7 +49,7 @@ CLUSTER_NAME="${CLUSTER_NAME:-${INSTANCE_PREFIX}}"
 MASTER_NAME="${INSTANCE_PREFIX}-master"
 MASTER_TAG="${INSTANCE_PREFIX}-master"
 NODE_TAG="${INSTANCE_PREFIX}-minion"
-CLUSTER_IP_RANGE="${CLUSTER_IP_RANGE:-10.245.0.0/16}"
+CLUSTER_IP_RANGE="${CLUSTER_IP_RANGE:-10.180.0.0/14}"
 MASTER_IP_RANGE="${MASTER_IP_RANGE:-10.246.0.0/24}"
 NODE_SCOPES="${NODE_SCOPES:-compute-rw,monitoring,logging-write,storage-ro}"
 RUNTIME_CONFIG="${KUBE_RUNTIME_CONFIG:-}"
@@ -86,11 +86,16 @@ KUBEPROXY_TEST_LOG_LEVEL="${KUBEPROXY_TEST_LOG_LEVEL:-$TEST_CLUSTER_LOG_LEVEL}"
 TEST_CLUSTER_DELETE_COLLECTION_WORKERS="${TEST_CLUSTER_DELETE_COLLECTION_WORKERS:---delete-collection-workers=1}"
 TEST_CLUSTER_RESYNC_PERIOD="${TEST_CLUSTER_RESYNC_PERIOD:---min-resync-period=3m}"
 
-KUBELET_TEST_ARGS="--max-pods=110 --serialize-image-pulls=false --outofdisk-transition-frequency=0"
-APISERVER_TEST_ARGS="--runtime-config=extensions/v1beta1 ${TEST_CLUSTER_DELETE_COLLECTION_WORKERS}"
-CONTROLLER_MANAGER_TEST_ARGS="${TEST_CLUSTER_RESYNC_PERIOD}"
-SCHEDULER_TEST_ARGS=""
-KUBEPROXY_TEST_ARGS=""
+# ContentType used by all components to communicate with apiserver.
+TEST_CLUSTER_API_CONTENT_TYPE="${TEST_CLUSTER_API_CONTENT_TYPE:-}"
+# ContentType used to store objects in underlying database.
+TEST_CLUSTER_STORAGE_CONTENT_TYPE="${TEST_CLUSTER_STORAGE_CONTENT_TYPE:-}"
+
+KUBELET_TEST_ARGS="--max-pods=110 --serialize-image-pulls=false --outofdisk-transition-frequency=0 ${TEST_CLUSTER_API_CONTENT_TYPE}"
+APISERVER_TEST_ARGS="--runtime-config=extensions/v1beta1 ${TEST_CLUSTER_DELETE_COLLECTION_WORKERS} ${TEST_CLUSTER_STORAGE_CONTENT_TYPE}"
+CONTROLLER_MANAGER_TEST_ARGS="${TEST_CLUSTER_RESYNC_PERIOD} ${TEST_CLUSTER_API_CONTENT_TYPE}"
+SCHEDULER_TEST_ARGS="${TEST_CLUSTER_API_CONTENT_TYPE}"
+KUBEPROXY_TEST_ARGS="${TEST_CLUSTER_API_CONTENT_TYPE}"
 
 # Optional: Enable node logging.
 ENABLE_NODE_LOGGING="${KUBE_ENABLE_NODE_LOGGING:-true}"
@@ -137,7 +142,7 @@ KUBE_UP_AUTOMATIC_CLEANUP=${KUBE_UP_AUTOMATIC_CLEANUP:-false}
 # Optional: setting it to true denotes this is a testing cluster,
 # so that we can use pulled kubernetes binaries, even if binaries
 # are pre-installed in the image. Note that currently this logic
-# is only supported in trusty nodes.
+# is only supported in trusty or GCI.
 TEST_CLUSTER="${TEST_CLUSTER:-true}"
 
 # OpenContrail networking plugin specific settings

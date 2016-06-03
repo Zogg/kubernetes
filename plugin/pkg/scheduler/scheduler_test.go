@@ -43,6 +43,12 @@ type fakeBinder struct {
 
 func (fb fakeBinder) Bind(binding *api.Binding) error { return fb.b(binding) }
 
+type fakePodConditionUpdater struct{}
+
+func (fc fakePodConditionUpdater) Update(pod *api.Pod, podCondition *api.PodCondition) error {
+	return nil
+}
+
 func podWithID(id, desiredHost string) *api.Pod {
 	return &api.Pod{
 		ObjectMeta: api.ObjectMeta{Name: id, SelfLink: testapi.Default.SelfLink("pods", id)},
@@ -55,7 +61,7 @@ func podWithID(id, desiredHost string) *api.Pod {
 func podWithPort(id, desiredHost string, port int) *api.Pod {
 	pod := podWithID(id, desiredHost)
 	pod.Spec.Containers = []api.Container{
-		{Name: "ctr", Ports: []api.ContainerPort{{HostPort: port}}},
+		{Name: "ctr", Ports: []api.ContainerPort{{HostPort: int32(port)}}},
 	}
 	return pod
 }
@@ -128,6 +134,7 @@ func TestScheduler(t *testing.T) {
 				gotBinding = b
 				return item.injectBindError
 			}},
+			PodConditionUpdater: fakePodConditionUpdater{},
 			Error: func(p *api.Pod, err error) {
 				gotPod = p
 				gotError = err

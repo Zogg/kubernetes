@@ -20,8 +20,10 @@ import (
 	"strings"
 
 	"github.com/coreos/etcd/clientv3"
+	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/etcd3"
+	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 func newETCD3Storage(c Config) (storage.Interface, error) {
@@ -36,5 +38,22 @@ func newETCD3Storage(c Config) (storage.Interface, error) {
 	if err != nil {
 		return nil, err
 	}
-	return etcd3.New(client, c.Codec, c.Prefix), nil
+	etcd3.StartCompactor(context.Background(), client)
+	return etcd3.New(client, c.Codec, c.Prefix, c.DeserializationCacheSize), nil
+}
+
+func newETCD3RawStorage(c Config) (generic.InterfaceRaw, error) {
+	endpoints := c.ServerList
+	for i, s := range endpoints {
+		endpoints[i] = strings.TrimLeft(s, "http://")
+	}
+	cfg := clientv3.Config{
+		Endpoints: endpoints,
+	}
+	client, err := clientv3.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	etcd3.StartCompactor(context.Background(), client)
+	return etcd3.NewRaw(client, c.Codec, c.Prefix), nil
 }

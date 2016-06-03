@@ -40,6 +40,7 @@ import (
 	autoscalingapiv1 "k8s.io/kubernetes/pkg/apis/autoscaling/v1"
 	"k8s.io/kubernetes/pkg/apis/batch"
 	batchapiv1 "k8s.io/kubernetes/pkg/apis/batch/v1"
+	batchapiv2alpha1 "k8s.io/kubernetes/pkg/apis/batch/v2alpha1"
 	"k8s.io/kubernetes/pkg/apis/extensions"
 	extensionsapiv1beta1 "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/apiserver"
@@ -88,7 +89,7 @@ func setUp(t *testing.T) (*Master, *etcdtesting.EtcdTestServer, Config, *assert.
 	resourceEncoding.SetVersionEncoding(batch.GroupName, *testapi.Batch.GroupVersion(), unversioned.GroupVersion{Group: batch.GroupName, Version: runtime.APIVersionInternal})
 	resourceEncoding.SetVersionEncoding(apps.GroupName, *testapi.Apps.GroupVersion(), unversioned.GroupVersion{Group: apps.GroupName, Version: runtime.APIVersionInternal})
 	resourceEncoding.SetVersionEncoding(extensions.GroupName, *testapi.Extensions.GroupVersion(), unversioned.GroupVersion{Group: extensions.GroupName, Version: runtime.APIVersionInternal})
-	storageFactory := genericapiserver.NewDefaultStorageFactory(storageConfig, api.Codecs, resourceEncoding, DefaultAPIResourceConfigSource())
+	storageFactory := genericapiserver.NewDefaultStorageFactory(storageConfig, testapi.StorageMediaType(), api.Codecs, resourceEncoding, DefaultAPIResourceConfigSource())
 
 	config.StorageFactory = storageFactory
 	config.APIResourceConfigSource = DefaultAPIResourceConfigSource()
@@ -128,7 +129,9 @@ func newMaster(t *testing.T) (*Master, *etcdtesting.EtcdTestServer, Config, *ass
 // limitedAPIResourceConfigSource only enables the core group, the extensions group, the batch group, and the autoscaling group.
 func limitedAPIResourceConfigSource() *genericapiserver.ResourceConfig {
 	ret := genericapiserver.NewResourceConfig()
-	ret.EnableVersions(apiv1.SchemeGroupVersion, extensionsapiv1beta1.SchemeGroupVersion, batchapiv1.SchemeGroupVersion, appsapi.SchemeGroupVersion, autoscalingapiv1.SchemeGroupVersion)
+	ret.EnableVersions(apiv1.SchemeGroupVersion, extensionsapiv1beta1.SchemeGroupVersion,
+		batchapiv1.SchemeGroupVersion, batchapiv2alpha1.SchemeGroupVersion,
+		appsapi.SchemeGroupVersion, autoscalingapiv1.SchemeGroupVersion)
 	return ret
 }
 
@@ -285,8 +288,8 @@ func TestControllerServicePorts(t *testing.T) {
 
 	controller := master.NewBootstrapController()
 
-	assert.Equal(1000, controller.ExtraServicePorts[0].Port)
-	assert.Equal(1010, controller.ExtraServicePorts[1].Port)
+	assert.Equal(int32(1000), controller.ExtraServicePorts[0].Port)
+	assert.Equal(int32(1010), controller.ExtraServicePorts[1].Port)
 }
 
 // TestGetNodeAddresses verifies that proper results are returned
@@ -423,12 +426,6 @@ func TestDiscoveryAtAPIS(t *testing.T) {
 				Version:      testapi.Autoscaling.GroupVersion().Version,
 			},
 		},
-		batch.GroupName: {
-			{
-				GroupVersion: testapi.Batch.GroupVersion().String(),
-				Version:      testapi.Batch.GroupVersion().Version,
-			},
-		},
 		apps.GroupName: {
 			{
 				GroupVersion: testapi.Apps.GroupVersion().String(),
@@ -442,6 +439,15 @@ func TestDiscoveryAtAPIS(t *testing.T) {
 			},
 		},
 	}
+	var batchVersions []unversioned.GroupVersionForDiscovery
+	for _, gv := range testapi.Batch.GroupVersions() {
+		batchVersions = append(batchVersions, unversioned.GroupVersionForDiscovery{
+			GroupVersion: gv.String(),
+			Version:      gv.Version,
+		})
+	}
+	expectVersions[batch.GroupName] = batchVersions
+
 	expectPreferredVersion := map[string]unversioned.GroupVersionForDiscovery{
 		autoscaling.GroupName: {
 			GroupVersion: registered.GroupOrDie(autoscaling.GroupName).GroupVersion.String(),
@@ -586,8 +592,7 @@ func testInstallThirdPartyAPIListVersion(t *testing.T, version string) {
 	for _, test := range tests {
 		func() {
 			master, etcdserver, server, assert := initThirdParty(t, version)
-			// TODO: Uncomment when fix #19254
-			// defer server.Close()
+			defer server.Close()
 			defer etcdserver.Terminate(t)
 
 			if test.items != nil {
@@ -697,8 +702,7 @@ func TestInstallThirdPartyAPIGet(t *testing.T) {
 
 func testInstallThirdPartyAPIGetVersion(t *testing.T, version string) {
 	master, etcdserver, server, assert := initThirdParty(t, version)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 	defer etcdserver.Terminate(t)
 
 	expectedObj := Foo{
@@ -745,8 +749,7 @@ func TestInstallThirdPartyAPIPost(t *testing.T) {
 
 func testInstallThirdPartyAPIPostForVersion(t *testing.T, version string) {
 	master, etcdserver, server, assert := initThirdParty(t, version)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 	defer etcdserver.Terminate(t)
 
 	inputObj := Foo{
@@ -810,8 +813,7 @@ func TestInstallThirdPartyAPIDelete(t *testing.T) {
 
 func testInstallThirdPartyAPIDeleteVersion(t *testing.T, version string) {
 	master, etcdserver, server, assert := initThirdParty(t, version)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 	defer etcdserver.Terminate(t)
 
 	expectedObj := Foo{
@@ -888,8 +890,7 @@ func TestInstallThirdPartyAPIListOptions(t *testing.T) {
 
 func testInstallThirdPartyAPIListOptionsForVersion(t *testing.T, version string) {
 	_, etcdserver, server, assert := initThirdParty(t, version)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 	defer etcdserver.Terminate(t)
 
 	// send a GET request with query parameter
@@ -921,8 +922,7 @@ func TestInstallThirdPartyResourceRemove(t *testing.T) {
 
 func testInstallThirdPartyResourceRemove(t *testing.T, version string) {
 	master, etcdserver, server, assert := initThirdParty(t, version)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 	defer etcdserver.Terminate(t)
 
 	expectedObj := Foo{
@@ -1043,8 +1043,7 @@ func TestIsTunnelSyncHealthy(t *testing.T) {
 
 func testThirdPartyDiscovery(t *testing.T, version string) {
 	_, etcdserver, server, assert := initThirdParty(t, version)
-	// TODO: Uncomment when fix #19254
-	// defer server.Close()
+	defer server.Close()
 	defer etcdserver.Terminate(t)
 
 	resp, err := http.Get(server.URL + "/apis/company.com/")

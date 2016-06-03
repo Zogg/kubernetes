@@ -50,7 +50,7 @@ func newETCD2RawStorage(c Config) (generic.InterfaceRaw, error) {
 	if err != nil {
 		return nil, err
 	}
-	return etcd.NewEtcdRawStorage(client, c.Quorum), nil
+	return etcd.NewEtcdRawStorage(client, c.Quorum), err
 }
 
 func newETCD2Client(tr *http.Transport, serverList []string) (etcd2client.Client, error) {

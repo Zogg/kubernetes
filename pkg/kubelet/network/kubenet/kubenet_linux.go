@@ -21,13 +21,18 @@ package kubenet
 import (
 	"fmt"
 	"net"
+
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 
 	"github.com/appc/cni/libcni"
 	"github.com/golang/glog"
+	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/dockertools"
 	"k8s.io/kubernetes/pkg/kubelet/network"
@@ -48,24 +53,29 @@ const (
 type kubenetNetworkPlugin struct {
 	network.NoopNetworkPlugin
 
-	host      network.Host
-	netConfig *libcni.NetworkConfig
-	cniConfig *libcni.CNIConfig
-	shaper    bandwidth.BandwidthShaper
-
-	podCIDRs map[kubecontainer.ContainerID]string
-	MTU      int
+	host        network.Host
+	netConfig   *libcni.NetworkConfig
+	cniConfig   *libcni.CNIConfig
+	shaper      bandwidth.BandwidthShaper
+	podCIDRs    map[kubecontainer.ContainerID]string
+	MTU         int
+	mu          sync.Mutex //Mutex for protecting podCIDRs map and netConfig
+	execer      utilexec.Interface
+	nsenterPath string
+	hairpinMode componentconfig.HairpinMode
 }
 
 func NewPlugin() network.NetworkPlugin {
 	return &kubenetNetworkPlugin{
 		podCIDRs: make(map[kubecontainer.ContainerID]string),
 		MTU:      1460,
+		execer:   utilexec.New(),
 	}
 }
 
-func (plugin *kubenetNetworkPlugin) Init(host network.Host) error {
+func (plugin *kubenetNetworkPlugin) Init(host network.Host, hairpinMode componentconfig.HairpinMode) error {
 	plugin.host = host
+	plugin.hairpinMode = hairpinMode
 	plugin.cniConfig = &libcni.CNIConfig{
 		Path: []string{DefaultCNIDir},
 	}
@@ -83,7 +93,7 @@ func (plugin *kubenetNetworkPlugin) Init(host network.Host) error {
 	// This will return an error on older kernel version (< 3.18) as the module
 	// was built-in, we simply ignore the error here. A better thing to do is
 	// to check the kernel version in the future.
-	utilexec.New().Command("modprobe", "br-netfilter").CombinedOutput()
+	plugin.execer.Command("modprobe", "br-netfilter").CombinedOutput()
 	if err := utilsysctl.SetSysctl(sysctlBridgeCallIptables, 1); err != nil {
 		glog.Warningf("can't set sysctl %s: %v", sysctlBridgeCallIptables, err)
 	}
@@ -139,6 +149,9 @@ func (plugin *kubenetNetworkPlugin) Event(name string, details map[string]interf
 		return
 	}
 
+	plugin.mu.Lock()
+	defer plugin.mu.Unlock()
+
 	podCIDR, ok := details[network.NET_PLUGIN_EVENT_POD_CIDR_CHANGE_DETAIL_CIDR].(string)
 	if !ok {
 		glog.Warningf("%s event didn't contain pod CIDR", network.NET_PLUGIN_EVENT_POD_CIDR_CHANGE)
@@ -192,6 +205,37 @@ func (plugin *kubenetNetworkPlugin) clearBridgeAddressesExcept(keep string) {
 	}
 }
 
+// ensureBridgeTxQueueLen() ensures that the bridge interface's TX queue
+// length is greater than zero.  Due to a CNI <= 0.3.0 'bridge' plugin bug,
+// the bridge is initially created with a TX queue length of 0, which gets
+// used as the packet limit for FIFO traffic shapers, which drops packets.
+// TODO: remove when we can depend on a fixed CNI
+func (plugin *kubenetNetworkPlugin) ensureBridgeTxQueueLen() {
+	bridge, err := netlink.LinkByName(BridgeName)
+	if err != nil {
+		return
+	}
+
+	if bridge.Attrs().TxQLen > 0 {
+		return
+	}
+
+	req := nl.NewNetlinkRequest(syscall.RTM_NEWLINK, syscall.NLM_F_ACK)
+	msg := nl.NewIfInfomsg(syscall.AF_UNSPEC)
+	req.AddData(msg)
+
+	nameData := nl.NewRtAttr(syscall.IFLA_IFNAME, nl.ZeroTerminated(BridgeName))
+	req.AddData(nameData)
+
+	qlen := nl.NewRtAttr(syscall.IFLA_TXQLEN, nl.Uint32Attr(1000))
+	req.AddData(qlen)
+
+	_, err = req.Execute(syscall.NETLINK_ROUTE, 0)
+	if err != nil {
+		glog.V(5).Infof("Failed to set bridge tx queue length: %v", err)
+	}
+}
+
 func (plugin *kubenetNetworkPlugin) Name() string {
 	return KubenetPluginName
 }
@@ -201,6 +245,14 @@ func (plugin *kubenetNetworkPlugin) Capabilities() utilsets.Int {
 }
 
 func (plugin *kubenetNetworkPlugin) SetUpPod(namespace string, name string, id kubecontainer.ContainerID) error {
+	plugin.mu.Lock()
+	defer plugin.mu.Unlock()
+
+	start := time.Now()
+	defer func() {
+		glog.V(4).Infof("TearDownPod took %v for %s/%s", time.Since(start), namespace, name)
+	}()
+
 	pod, ok := plugin.host.GetPodByName(namespace, name)
 	if !ok {
 		return fmt.Errorf("pod %q cannot be found", name)
@@ -210,9 +262,8 @@ func (plugin *kubenetNetworkPlugin) SetUpPod(namespace string, name string, id k
 		return fmt.Errorf("Error reading pod bandwidth annotations: %v", err)
 	}
 
-	// Can't set up pods if we don't have a PodCIDR yet
-	if plugin.netConfig == nil {
-		return fmt.Errorf("Kubenet needs a PodCIDR to set up pods")
+	if err := plugin.Status(); err != nil {
+		return fmt.Errorf("Kubenet cannot SetUpPod: %v", err)
 	}
 
 	runtime, ok := plugin.host.GetRuntime().(*dockertools.DockerManager)
@@ -229,16 +280,22 @@ func (plugin *kubenetNetworkPlugin) SetUpPod(namespace string, name string, id k
 		return fmt.Errorf("Error building CNI config: %v", err)
 	}
 
-	glog.V(3).Infof("Calling cni plugins to add container to network with cni runtime: %+v", rt)
-	res, err := plugin.cniConfig.AddNetwork(plugin.netConfig, rt)
-	if err != nil {
-		return fmt.Errorf("Error adding container to network: %v", err)
-	}
-	if res.IP4 == nil {
-		return fmt.Errorf("CNI plugin reported no IPv4 address for container %v.", id)
+	if err = plugin.addContainerToNetwork(id, rt); err != nil {
+		return err
 	}
 
-	plugin.podCIDRs[id] = res.IP4.IP.String()
+	// Put the container bridge into promiscuous mode to force it to accept hairpin packets.
+	// TODO: Remove this once the kernel bug (#20096) is fixed.
+	// TODO: check and set promiscuous mode with netlink once vishvananda/netlink supports it
+	if plugin.hairpinMode == componentconfig.PromiscuousBridge {
+		output, err := plugin.execer.Command("ip", "link", "show", "dev", BridgeName).CombinedOutput()
+		if err != nil || strings.Index(string(output), "PROMISC") < 0 {
+			_, err := plugin.execer.Command("ip", "link", "set", BridgeName, "promisc", "on").CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("Error setting promiscuous mode on %s: %v", BridgeName, err)
+			}
+		}
+	}
 
 	// The first SetUpPod call creates the bridge; ensure shaping is enabled
 	if plugin.shaper == nil {
@@ -246,6 +303,7 @@ func (plugin *kubenetNetworkPlugin) SetUpPod(namespace string, name string, id k
 		if plugin.shaper == nil {
 			return fmt.Errorf("Failed to create bandwidth shaper!")
 		}
+		plugin.ensureBridgeTxQueueLen()
 		plugin.shaper.ReconcileInterface()
 	}
 
@@ -260,6 +318,14 @@ func (plugin *kubenetNetworkPlugin) SetUpPod(namespace string, name string, id k
 }
 
 func (plugin *kubenetNetworkPlugin) TearDownPod(namespace string, name string, id kubecontainer.ContainerID) error {
+	plugin.mu.Lock()
+	defer plugin.mu.Unlock()
+
+	start := time.Now()
+	defer func() {
+		glog.V(4).Infof("TearDownPod took %v for %s/%s", time.Since(start), namespace, name)
+	}()
+
 	if plugin.netConfig == nil {
 		return fmt.Errorf("Kubenet needs a PodCIDR to tear down pods")
 	}
@@ -288,11 +354,8 @@ func (plugin *kubenetNetworkPlugin) TearDownPod(namespace string, name string, i
 			}
 		}
 	}
-	delete(plugin.podCIDRs, id)
-
-	glog.V(3).Infof("Calling cni plugins to remove container from network with cni runtime: %+v", rt)
-	if err := plugin.cniConfig.DelNetwork(plugin.netConfig, rt); err != nil {
-		return fmt.Errorf("Error removing container from network: %v", err)
+	if err = plugin.delContainerFromNetwork(id, rt); err != nil {
+		return err
 	}
 
 	return nil
@@ -300,17 +363,53 @@ func (plugin *kubenetNetworkPlugin) TearDownPod(namespace string, name string, i
 
 // TODO: Use the addToNetwork function to obtain the IP of the Pod. That will assume idempotent ADD call to the plugin.
 // Also fix the runtime's call to Status function to be done only in the case that the IP is lost, no need to do periodic calls
-func (plugin *kubenetNetworkPlugin) Status(namespace string, name string, id kubecontainer.ContainerID) (*network.PodNetworkStatus, error) {
-	cidr, ok := plugin.podCIDRs[id]
-	if !ok {
-		return nil, fmt.Errorf("No IP address found for pod %v", id)
+func (plugin *kubenetNetworkPlugin) GetPodNetworkStatus(namespace string, name string, id kubecontainer.ContainerID) (*network.PodNetworkStatus, error) {
+	plugin.mu.Lock()
+	defer plugin.mu.Unlock()
+	// Assuming the ip of pod does not change. Try to retrieve ip from kubenet map first.
+	if cidr, ok := plugin.podCIDRs[id]; ok {
+		ip, _, err := net.ParseCIDR(strings.Trim(cidr, "\n"))
+		if err == nil {
+			return &network.PodNetworkStatus{IP: ip}, nil
+		}
 	}
-
-	ip, _, err := net.ParseCIDR(strings.Trim(cidr, "\n"))
+	// TODO: remove type conversion once kubenet supports multiple runtime
+	runtime, ok := plugin.host.GetRuntime().(*dockertools.DockerManager)
+	if !ok {
+		return nil, fmt.Errorf("Kubenet execution called on non-docker runtime")
+	}
+	netnsPath, err := runtime.GetNetNS(id)
+	if err != nil {
+		return nil, fmt.Errorf("Kubenet failed to retrieve network namespace path: %v", err)
+	}
+	nsenterPath, err := plugin.getNsenterPath()
 	if err != nil {
 		return nil, err
 	}
+	// Try to retrieve ip inside container network namespace
+	output, err := plugin.execer.Command(nsenterPath, fmt.Sprintf("--net=%s", netnsPath), "-F", "--",
+		"ip", "-o", "-4", "addr", "show", "dev", network.DefaultInterfaceName).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("Unexpected command output %s with error: %v", output, err)
+	}
+	fields := strings.Fields(string(output))
+	if len(fields) < 4 {
+		return nil, fmt.Errorf("Unexpected command output %s ", output)
+	}
+	ip, _, err := net.ParseCIDR(fields[3])
+	if err != nil {
+		return nil, fmt.Errorf("Kubenet failed to parse ip from output %s due to %v", output, err)
+	}
+	plugin.podCIDRs[id] = ip.String()
 	return &network.PodNetworkStatus{IP: ip}, nil
+}
+
+func (plugin *kubenetNetworkPlugin) Status() error {
+	// Can't set up pods if we don't have a PodCIDR yet
+	if plugin.netConfig == nil {
+		return fmt.Errorf("Kubenet does not have netConfig. This is most likely due to lack of PodCIDR")
+	}
+	return nil
 }
 
 func buildCNIRuntimeConf(podName string, podNs string, podInfraContainerID kubecontainer.ContainerID, podNetnsPath string) *libcni.RuntimeConf {
@@ -322,4 +421,38 @@ func buildCNIRuntimeConf(podName string, podNs string, podInfraContainerID kubec
 		NetNS:       podNetnsPath,
 		IfName:      network.DefaultInterfaceName,
 	}
+}
+
+func (plugin *kubenetNetworkPlugin) addContainerToNetwork(id kubecontainer.ContainerID, rt *libcni.RuntimeConf) error {
+	glog.V(3).Infof("Calling cni plugins to add container to network with cni runtime: %+v", rt)
+	res, err := plugin.cniConfig.AddNetwork(plugin.netConfig, rt)
+	if err != nil {
+		return fmt.Errorf("Error adding container to network: %v", err)
+	}
+	if res.IP4 == nil || res.IP4.IP.String() == "" {
+		return fmt.Errorf("CNI plugin reported no IPv4 address for container %v.", id)
+	}
+
+	plugin.podCIDRs[id] = res.IP4.IP.String()
+	return nil
+}
+
+func (plugin *kubenetNetworkPlugin) delContainerFromNetwork(id kubecontainer.ContainerID, rt *libcni.RuntimeConf) error {
+	glog.V(3).Infof("Calling cni plugins to remove container from network with cni runtime: %+v", rt)
+	if err := plugin.cniConfig.DelNetwork(plugin.netConfig, rt); err != nil {
+		return fmt.Errorf("Error removing container from network: %v", err)
+	}
+	delete(plugin.podCIDRs, id)
+	return nil
+}
+
+func (plugin *kubenetNetworkPlugin) getNsenterPath() (string, error) {
+	if plugin.nsenterPath == "" {
+		nsenterPath, err := plugin.execer.LookPath("nsenter")
+		if err != nil {
+			return "", err
+		}
+		plugin.nsenterPath = nsenterPath
+	}
+	return plugin.nsenterPath, nil
 }
