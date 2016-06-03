@@ -1,10 +1,10 @@
 package consul
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
-	"net/url"
 
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/generic"
@@ -18,13 +18,9 @@ import (
 const DefaultWaitTimeout = time.Duration(10 * time.Second)
 
 type ConsulKvStorage struct {
-	ConsulKv   consulapi.KV
-	ServerList []string
+	ConsulKv    consulapi.KV
+	ServerList  []string
 	WaitTimeout time.Duration
-}
-
-type ConsulKvStorageConfig struct {
-	// TBD
 }
 
 func (s *ConsulKvStorage) Backends(ctx context.Context) []string {
@@ -183,7 +179,7 @@ func (s *ConsulKvStorage) Get(ctx context.Context, key string, raw *generic.RawO
 		return toStorageErr(err, key, 0)
 	}
 	if kv == nil || len(kv.Value) == 0 {
-		return storage.NewKeyNotFoundError( key, 0 )
+		return storage.NewKeyNotFoundError(key, 0)
 	}
 	if raw != nil {
 		raw.Data = kv.Value
@@ -257,14 +253,13 @@ func (s *ConsulKvStorage) transformKeyName(keyIn string) string {
 	return strings.Trim(keyIn, "/")
 }
 
-
 func toStorageErr(err error, key string, rv int64) error {
 	switch err := err.(type) {
-		case *url.Error:
-			_ = err
-			storeErr := storage.NewUnreachableError(key, rv)
-			storeErr.AdditionalErrorMsg = "Consul agent not responding"
-			return storeErr
+	case *url.Error:
+		_ = err
+		storeErr := storage.NewUnreachableError(key, rv)
+		storeErr.AdditionalErrorMsg = "Consul agent not responding"
+		return storeErr
 	}
 	return err
 }

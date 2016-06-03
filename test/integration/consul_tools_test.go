@@ -19,44 +19,60 @@ limitations under the License.
 package integration
 
 import (
-	"strconv"
+	//	"strconv"
 	"testing"
 
+	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
-	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/storage"
-	consulstorage "k8s.io/kubernetes/pkg/storage/consul"
-	"k8s.io/kubernetes/pkg/watch"
-	"k8s.io/kubernetes/test/integration/framework"
-
-	etcd "github.com/coreos/etcd/client"
-	"golang.org/x/net/context"
+	// "k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/storage/consul/consultest"
+	storagebackend "k8s.io/kubernetes/pkg/storage/storagebackend"
+	//	"k8s.io/kubernetes/test/integration/framework"
 )
 
 func TestCreate(t *testing.T) {
-	client := framework.NewConsulClient()
-	keysAPI := etcd.NewKeysAPI(client)
-	consulstorage := consulstorage.NewConsulStorage(client, testapi.Default.Codec(), "", false, etcdtest.DeserializationCacheSize)
+	//client := framework.NewConsulClient()
+
+	config := storagebackend.Config{
+		Type:   storagebackend.StorageTypeConsul,
+		Codec:  testapi.Default.Codec(),
+		Prefix: consultest.PathPrefix(),
+		DeserializationCacheSize: consultest.DeserializationCacheSize,
+	}
+
+	cstorage, err := storagebackend.Create(config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
 	ctx := context.TODO()
-	framework.WithConsulKey(func(key string) {
-		testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
-		if err := consulstorage.Create(ctx, key, &testObject, nil, 0); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		resp, err := keysAPI.Get(ctx, key, nil)
-		if err != nil || resp.Node == nil {
-			t.Fatalf("unexpected error: %v %v", err, resp)
-		}
-		decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(resp.Node.Value))
-		if err != nil {
-			t.Fatalf("unexpected response: %#v", resp.Node)
-		}
-		result := *decoded.(*api.ServiceAccount)
-		if !api.Semantic.DeepEqual(testObject, result) {
-			t.Errorf("expected: %#v got: %#v", testObject, result)
-		}
-	})
+	errb := cstorage.Create(ctx, "", &testObject, nil, 0)
+	if errb != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	/*
+		framework.WithConsulKey(func(key string) {
+			testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
+			if err := consulstorage.Create(ctx, key, &testObject, nil, 0); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			resp, err := keysAPI.Get(ctx, key, nil)
+			if err != nil || resp.Node == nil {
+				t.Fatalf("unexpected error: %v %v", err, resp)
+			}
+			decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(resp.Node.Value))
+			if err != nil {
+				t.Fatalf("unexpected response: %#v", resp.Node)
+			}
+			result := *decoded.(*api.ServiceAccount)
+			if !api.Semantic.DeepEqual(testObject, result) {
+				t.Errorf("expected: %#v got: %#v", testObject, result)
+			}
+		})
+	*/
 }
 
 /*

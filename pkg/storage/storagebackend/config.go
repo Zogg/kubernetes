@@ -19,16 +19,16 @@ package storagebackend
 import (
 	"fmt"
 
+	consulapi "github.com/hashicorp/consul/api"
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
-	consulapi "github.com/hashicorp/consul/api"
 	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
 const (
-	StorageTypeUnset   = ""
-	StorageTypeETCD2   = "etcd2"
-	StorageTypeETCD3   = "etcd3"
+	StorageTypeUnset  = ""
+	StorageTypeETCD2  = "etcd2"
+	StorageTypeETCD3  = "etcd3"
 	StorageTypeConsul = "consul"
 )
 
@@ -72,7 +72,6 @@ func Create(c Config) (storage.Interface, error) {
 	}
 }
 
-
 // Create creates a storage backend based on given config.
 func CreateRaw(c Config) (generic.InterfaceRaw, error) {
 	switch c.Type {
@@ -98,7 +97,7 @@ type ConsulConfig struct {
 }
 */
 
-func (c *Config)  getConsulApiConfig() *consulapi.Config {
+func (c *Config) getConsulApiConfig() *consulapi.Config {
 	config := consulapi.DefaultConfig()
 
 	// TODO do stuff to propagate configuration values from our structure
