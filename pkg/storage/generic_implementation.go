@@ -85,7 +85,7 @@ func (s *GenericWrapper) Create(ctx context.Context, key string, obj runtime.Obj
 		}
 		err = s.extractObj(raw_out, err, out, false)
 	}
-	return err
+	return nil
 }
 
 func (s *GenericWrapper) Delete(ctx context.Context, key string, out runtime.Object, preconditions *Preconditions) error {
@@ -370,8 +370,6 @@ func (h *GenericWrapper) addToCache(index uint64, obj runtime.Object) {
 	//	metrics.ObserveNewEntry()
 	//}
 }
-
-
 
 type APIObjectVersioner struct{}
 

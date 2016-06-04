@@ -254,6 +254,7 @@ func (s *ConsulKvStorage) transformKeyName(keyIn string) string {
 }
 
 func toStorageErr(err error, key string, rv int64) error {
+	glog.Infof("Storage Error: %v, key: %v", err, key)
 	switch err := err.(type) {
 	case *url.Error:
 		_ = err

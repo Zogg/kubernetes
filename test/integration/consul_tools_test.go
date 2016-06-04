@@ -48,7 +48,7 @@ func TestCreate(t *testing.T) {
 
 	testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
 	ctx := context.TODO()
-	errb := cstorage.Create(ctx, "", &testObject, nil, 0)
+	errb := cstorage.Create(ctx, "some/key", &testObject, nil, 0)
 	if errb != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
