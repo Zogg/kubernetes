@@ -17,12 +17,18 @@ limitations under the License.
 package storagebackend
 
 import (
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/consul"
 	consulapi "github.com/hashicorp/consul/api"
 	"k8s.io/kubernetes/pkg/storage/generic"
+	utilnet "k8s.io/kubernetes/pkg/util/net"
 )
 
 func newConsulStorage(c Config) (storage.Interface, error) {
@@ -39,15 +45,77 @@ func newConsulStorage(c Config) (storage.Interface, error) {
 }
 
 func newConsulRawStorage(c Config) (generic.InterfaceRaw, error) {
-	client, err := consulapi.NewClient(c.getConsulApiConfig())
+	for _, server := range c.ServerList {
+		parsed, err := url.Parse( server )
+		if err != nil {
+			continue
+		}
+		clientConfig := c.getConsulApiConfig(parsed)
+		client, err := consulapi.NewClient(clientConfig)
+		if err != nil {
+			continue
+		}
+		raw := &consul.ConsulKvStorage {
+			ConsulKv:   *client.KV(),
+			// TODO: make this configurable for multiple servers
+			ServerList:     []string{clientConfig.Address},
+			WaitTimeout: consul.DefaultWaitTimeout,
+		}
+		return raw, nil
+	}
+	return nil, fmt.Errorf("No suitable consul server found on any address %v", c.ServerList)
+}
+
+func (c *Config)  getConsulApiConfig(server *url.URL) *consulapi.Config {
+	config := consulapi.DefaultConfig()
+
+	// TODO do stuff to propagate configuration values from our structure
+	// to theirs
+	
+	if server != nil {
+		config.Scheme = server.Scheme
+		switch {
+		case server.Scheme == "http" || server.Scheme == "https":
+			config.Address = server.Host
+		case server.Scheme == "unix":
+			config.Address = server.String()
+		}
+	} 
+
+	if c.KeyFile != "" && c.CertFile != "" && c.CAFile != "" {
+		transport, err := newTransportForConsul( config.Address, c.CertFile, c.KeyFile, c.CAFile )
+		if err != nil {
+			panic(err)
+		}
+
+		config.HttpClient.Transport = transport
+	}
+
+	return config
+}
+
+func newTransportForConsul(address, certFile, keyFile, caFile string) (*http.Transport, error) {
+	tlsConfig := &consulapi.TLSConfig{
+		Address:  address,
+		CertFile: certFile,
+		KeyFile:  keyFile,
+		CAFile:   caFile,
+	}
+	cfg, err := consulapi.SetupTLSConfig(tlsConfig)
 	if err != nil {
 		return nil, err
 	}
-	raw := &consul.ConsulKvStorage {
-		ConsulKv:   *client.KV(),
-		// TODO: make this configurable for multiple servers
-		ServerList:     []string{c.getConsulApiConfig().Address},
-		WaitTimeout: consul.DefaultWaitTimeout,
-	}
-	return raw, nil
+	// Copied from etcd.DefaultTransport declaration.
+	// TODO: Determine if transport needs optimization
+	tr := utilnet.SetTransportDefaults(&http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		Dial: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: 10 * time.Second,
+		MaxIdleConnsPerHost: 500,
+		TLSClientConfig:     cfg,
+	})
+	return tr, nil
 }

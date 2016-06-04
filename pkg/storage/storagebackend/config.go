@@ -21,7 +21,6 @@ import (
 
 	"k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage"
-	consulapi "github.com/hashicorp/consul/api"
 	"k8s.io/kubernetes/pkg/storage/generic"
 )
 
@@ -97,12 +96,3 @@ type ConsulConfig struct {
 	WaitTimeout time.Duration
 }
 */
-
-func (c *Config)  getConsulApiConfig() *consulapi.Config {
-	config := consulapi.DefaultConfig()
-
-	// TODO do stuff to propagate configuration values from our structure
-	// to theirs
-
-	return config
-}
