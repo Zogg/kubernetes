@@ -33,11 +33,12 @@ import (
 
 func TestCreate(t *testing.T) {
 	//client := framework.NewConsulClient()
-
+	serverList := []string{"http://127.0.0.1"}
 	config := storagebackend.Config{
-		Type:   storagebackend.StorageTypeConsul,
-		Codec:  testapi.Default.Codec(),
-		Prefix: consultest.PathPrefix(),
+		Type:       storagebackend.StorageTypeConsul,
+		Codec:      testapi.Default.Codec(),
+		ServerList: serverList,
+		Prefix:     consultest.PathPrefix(),
 		DeserializationCacheSize: consultest.DeserializationCacheSize,
 	}
 
