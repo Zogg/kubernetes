@@ -74,6 +74,7 @@ func newEtcdWatcherRaw(list bool, quorum bool, include includeFunc) *etcdWatcher
 		case <-w.userStop:
 		}
 	}
+	w.wg.Add(1)
 	go w.translate()
 	return w
 }
