@@ -28,7 +28,7 @@ const DeserializationCacheSize = 150
 func PathPrefix() string {
 	pref := os.Getenv("ETCD_PREFIX") // FIXME: use CONSUL_PREFIX instead
 	if pref == "" {
-		pref = "/v1/kv/"
+		pref = "k8s"
 	}
 	return path.Join("/", pref)
 }

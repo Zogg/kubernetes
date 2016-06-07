@@ -24,9 +24,9 @@ import (
 	"strings"
 	"time"
 
+	consulapi "github.com/hashicorp/consul/api"
 	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/consul"
-	consulapi "github.com/hashicorp/consul/api"
 	"k8s.io/kubernetes/pkg/storage/generic"
 	utilnet "k8s.io/kubernetes/pkg/util/net"
 )
@@ -46,7 +46,7 @@ func newConsulStorage(c Config) (storage.Interface, error) {
 
 func newConsulRawStorage(c Config) (generic.InterfaceRaw, error) {
 	for _, server := range c.ServerList {
-		parsed, err := url.Parse( server )
+		parsed, err := url.Parse(server)
 		if err != nil {
 			continue
 		}
@@ -55,10 +55,10 @@ func newConsulRawStorage(c Config) (generic.InterfaceRaw, error) {
 		if err != nil {
 			continue
 		}
-		raw := &consul.ConsulKvStorage {
-			ConsulKv:   *client.KV(),
+		raw := &consul.ConsulKvStorage{
+			ConsulKv: *client.KV(),
 			// TODO: make this configurable for multiple servers
-			ServerList:     []string{clientConfig.Address},
+			ServerList:  []string{clientConfig.Address},
 			WaitTimeout: consul.DefaultWaitTimeout,
 		}
 		return raw, nil
@@ -66,12 +66,12 @@ func newConsulRawStorage(c Config) (generic.InterfaceRaw, error) {
 	return nil, fmt.Errorf("No suitable consul server found on any address %v", c.ServerList)
 }
 
-func (c *Config)  getConsulApiConfig(server *url.URL) *consulapi.Config {
+func (c *Config) getConsulApiConfig(server *url.URL) *consulapi.Config {
 	config := consulapi.DefaultConfig()
 
 	// TODO do stuff to propagate configuration values from our structure
 	// to theirs
-	
+
 	if server != nil {
 		config.Scheme = server.Scheme
 		switch {
@@ -80,10 +80,10 @@ func (c *Config)  getConsulApiConfig(server *url.URL) *consulapi.Config {
 		case server.Scheme == "unix":
 			config.Address = server.String()
 		}
-	} 
+	}
 
 	if c.KeyFile != "" && c.CertFile != "" && c.CAFile != "" {
-		transport, err := newTransportForConsul( config.Address, c.CertFile, c.KeyFile, c.CAFile )
+		transport, err := newTransportForConsul(config.Address, c.CertFile, c.KeyFile, c.CAFile)
 		if err != nil {
 			panic(err)
 		}
