@@ -28,11 +28,10 @@ import (
 	// "k8s.io/kubernetes/pkg/runtime"
 	"k8s.io/kubernetes/pkg/storage/consul/consultest"
 	storagebackend "k8s.io/kubernetes/pkg/storage/storagebackend"
-	//	"k8s.io/kubernetes/test/integration/framework"
+	"k8s.io/kubernetes/test/integration/framework"
 )
 
 func TestCreate(t *testing.T) {
-
 	serverList := []string{"http://localhost"}
 	config := storagebackend.Config{
 		Type:       storagebackend.StorageTypeConsul,
@@ -47,36 +46,32 @@ func TestCreate(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
-	ctx := context.TODO()
-	key := "some/key"
-	err = cstorage.Create(ctx, key, &testObject, nil, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
 	/*
-		err = cstorage.Get(ctx, key, &testObject, false)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-			decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(resp.Node.Value))
+			err = cstorage.Get(ctx, key, &testObject, false)
 			if err != nil {
-				t.Fatalf("unexpected response: %#v", resp.Node)
+				t.Fatalf("unexpected error: %v", err)
 			}
 
-					result := *decoded.(*api.ServiceAccount)
-					if !api.Semantic.DeepEqual(testObject, result) {
-						t.Errorf("expected: %#v got: %#v", testObject, result)
-					}
-				})
+				decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(resp.Node.Value))
+				if err != nil {
+					t.Fatalf("unexpected response: %#v", resp.Node)
+				}
+
+						result := *decoded.(*api.ServiceAccount)
+						if !api.Semantic.DeepEqual(testObject, result) {
+							t.Errorf("expected: %#v got: %#v", testObject, result)
+						}
+					})
+
+		framework.WithConsulKey(func(key string) {
+			testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
+			ctx := context.TODO()
+			err = cstorage.Create(ctx, key, &testObject, nil, 0)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	*/
-	// TODO: Move this into a defer
-	err = cstorage.Delete(ctx, key, &testObject, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %#v", err)
-	}
 }
 
 /*

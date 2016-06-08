@@ -17,9 +17,16 @@ limitations under the License.
 package framework
 
 import (
+	"fmt"
 	"github.com/golang/glog"
 	consulapi "github.com/hashicorp/consul/api"
+	"golang.org/x/net/context"
+	storagebackend "k8s.io/kubernetes/pkg/storage/storagebackend"
+	"math/rand"
 	// consulstorage "k8s.io/kubernetes/pkg/storage/consul"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/testapi"
+	"k8s.io/kubernetes/pkg/storage/consul/consultest"
 )
 
 // If you need to start an consul instance by hand, you also need to insert a key
@@ -84,13 +91,35 @@ func RequireConsul() {
 	}
 }
 
-/*
 func WithConsulKey(f func(string)) {
 	prefix := fmt.Sprintf("/test-%d", rand.Int63())
-	defer consul.NewKeysAPI(NewConsulClient()).Delete(context.TODO(), prefix, &consul.DeleteOptions{Recursive: true})
+	// defer deleteKeys(prefix)
 	f(prefix)
 }
 
+func deleteKeys(prefix string) {
+	serverList := []string{"http://localhost"}
+	config := storagebackend.Config{
+		Type:       storagebackend.StorageTypeConsul,
+		Codec:      testapi.Default.Codec(),
+		ServerList: serverList,
+		Prefix:     consultest.PathPrefix(),
+		DeserializationCacheSize: consultest.DeserializationCacheSize,
+	}
+	cstorage, err := storagebackend.Create(config)
+	if err != nil {
+		glog.Fatalf("unexpected error: %v", err)
+	}
+
+	ctx := context.TODO()
+	testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
+	err = cstorage.Delete(ctx, prefix, &testObject, nil)
+	if err != nil {
+		glog.Fatalf("unexpected error: %v", err)
+	}
+}
+
+/*
 // DeleteAllConsulKeys deletes all keys from consul.
 // TODO: Instead of sprinkling calls to this throughout the code, adjust the
 // prefix in consultest package; then just delete everything once at the end
