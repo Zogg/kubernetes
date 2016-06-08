@@ -95,6 +95,7 @@ func (s *GenericWrapper) Delete(ctx context.Context, key string, out runtime.Obj
 	key = s.prefixKey(key)
 	v, err := conversion.EnforcePtr(out)
 	if err != nil {
+		glog.Errorf("Error converting key %v: %v", key, err)
 		panic("unable to convert output object to pointer")
 	}
 	obj := reflect.New(v.Type()).Interface().(runtime.Object)

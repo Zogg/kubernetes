@@ -32,7 +32,7 @@ import (
 )
 
 func TestCreate(t *testing.T) {
-	//client := framework.NewConsulClient()
+
 	serverList := []string{"http://localhost"}
 	config := storagebackend.Config{
 		Type:       storagebackend.StorageTypeConsul,
@@ -49,31 +49,34 @@ func TestCreate(t *testing.T) {
 
 	testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
 	ctx := context.TODO()
-	errb := cstorage.Create(ctx, "some/key", &testObject, nil, 0)
-	if errb != nil {
+	key := "some/key"
+	err = cstorage.Create(ctx, key, &testObject, nil, 0)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	/*
-		framework.WithConsulKey(func(key string) {
-			testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
-			if err := consulstorage.Create(ctx, key, &testObject, nil, 0); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			resp, err := keysAPI.Get(ctx, key, nil)
-			if err != nil || resp.Node == nil {
-				t.Fatalf("unexpected error: %v %v", err, resp)
-			}
+		err = cstorage.Get(ctx, key, &testObject, false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
 			decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(resp.Node.Value))
 			if err != nil {
 				t.Fatalf("unexpected response: %#v", resp.Node)
 			}
-			result := *decoded.(*api.ServiceAccount)
-			if !api.Semantic.DeepEqual(testObject, result) {
-				t.Errorf("expected: %#v got: %#v", testObject, result)
-			}
-		})
+
+					result := *decoded.(*api.ServiceAccount)
+					if !api.Semantic.DeepEqual(testObject, result) {
+						t.Errorf("expected: %#v got: %#v", testObject, result)
+					}
+				})
 	*/
+	// TODO: Move this into a defer
+	err = cstorage.Delete(ctx, key, &testObject, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %#v", err)
+	}
 }
 
 /*
