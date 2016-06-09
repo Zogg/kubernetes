@@ -1,12 +1,14 @@
 package testing
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"testing"
 	"time"
 	
@@ -27,7 +29,7 @@ const ConsulConfig = `
   "node_name": "foobar",
   "server": true,
   "addresses": {
-    "https": "0.0.0.0"
+    "https": "127.0.0.1"
   },
   "ports": {
     "https": 8501
@@ -117,36 +119,146 @@ type ConsulTestServerFactory struct {
 	filePath    string
 }
 
-func(f *ConsulTestServerFactory) NewTestClientServer(t *testing.T) TestServer {
+type ConsulTestServer struct {
+	cmdServer   *exec.Cmd
+	cmdLeave    *exec.Cmd
+	config      storagebackend.Config
+	CertificatesDir	string
+	ConfigFile		string
+	Prefix			string
+}
+
+type ConsulServerPorts struct {
+	dns		int
+	http	int
+	https	int
+	rpc		int
+	serf_l	int
+	serf_w	int
+	server	int
+}
+
+var SHARED_CONSUL_SERVER_CONFIG = ConsulServerPorts{
+	dns:	-1,
+	http:	-1,
+	https:	8505,
+	rpc:	8506,
+	serf_l:	8507,
+	serf_w:	8508,
+	server:	8509,
+}
+
+func consulServerConfigFromPorts(portConfig* ConsulServerPorts) (*ConsulTestServer, error) {
 	server := &ConsulTestServer{
 		config:     storagebackend.Config{
 			Type:	storagebackend.StorageTypeConsul,
 			ServerList: 	[]string{"https://127.0.0.1:8501"},
 		},
 	}
+	config := map[string]interface{}{
+		"datacenter": "k8s-testing",
+		"log_level": "INFO",
+		"node_name": "test_svr",
+		"server": true,
+		"bind_addr": "127.0.0.1",
+	}
+
+	addresses := make(map[string]string, 0)
+	ports := make(map[string]int, 0)
+	
+	valid := false
+	
+	if portConfig.dns > 0 {
+		addresses["dns"] = "127.0.0.1"
+		ports["dns"] = portConfig.dns
+	} else {
+		ports["dns"] = -1
+	}
+	
+	if portConfig.http > 0 {
+		addresses["http"] = "127.0.0.1"
+		ports["http"] = portConfig.http
+		server.config.ServerList = []string{ "http://127.0.0.1:" + strconv.Itoa(portConfig.http) }
+		valid = true 
+	} else {
+		ports["http"] = -1
+	}
+	
 	var err error
-	server.CertificatesDir, err = ioutil.TempDir(os.TempDir(), "etcd_certificates")
-	if err != nil {
-		t.Fatal(err)
+	
+	if portConfig.https > 0 {
+		server.CertificatesDir, err = ioutil.TempDir(os.TempDir(), "etcd_certificates")
+		if err != nil {
+			return nil, err
+		}
+		server.config.CertFile = path.Join(server.CertificatesDir, "etcdcert.pem")
+		if err = ioutil.WriteFile(server.config.CertFile, []byte(etcdtesting.CertFileContent), 0644); err != nil {
+			return nil, err
+		}
+		server.config.KeyFile = path.Join(server.CertificatesDir, "etcdkey.pem")
+		if err = ioutil.WriteFile(server.config.KeyFile, []byte(etcdtesting.KeyFileContent), 0644); err != nil {
+			return nil, err
+		}
+		server.config.CAFile = path.Join(server.CertificatesDir, "ca.pem")
+		if err = ioutil.WriteFile(server.config.CAFile, []byte(etcdtesting.CAFileContent), 0644); err != nil {
+			return nil, err
+		}
+		config["cert_file"] = server.config.CertFile
+		config["key_file"] = server.config.KeyFile
+		config["ca_file"] = server.config.CAFile
+		config["verify_incoming"] = true
+		config["verify_outgoing"] = true
+		addresses["https"] = "127.0.0.1"
+		ports["https"] = portConfig.https
+		server.config.ServerList = []string{ "https://127.0.0.1:" + strconv.Itoa(portConfig.https) }
+		valid = true 
+	} else {
+		ports["https"] = -1
 	}
-	server.config.CertFile = path.Join(server.CertificatesDir, "etcdcert.pem")
-	if err = ioutil.WriteFile(server.config.CertFile, []byte(etcdtesting.CertFileContent), 0644); err != nil {
-		t.Fatal(err)
+	
+	if !valid {
+		return nil, errors.New("Invalid consul configuration specified with no client port")
 	}
-	server.config.KeyFile = path.Join(server.CertificatesDir, "etcdkey.pem")
-	if err = ioutil.WriteFile(server.config.KeyFile, []byte(etcdtesting.KeyFileContent), 0644); err != nil {
-		t.Fatal(err)
+	
+	if portConfig.serf_l > 0 {
+		ports["serf_lan"] = portConfig.serf_l
 	}
-	server.config.CAFile = path.Join(server.CertificatesDir, "ca.pem")
-	if err = ioutil.WriteFile(server.config.CAFile, []byte(etcdtesting.CAFileContent), 0644); err != nil {
-		t.Fatal(err)
+	
+	if portConfig.serf_w > 0 {
+		ports["serf_wan"] = portConfig.serf_w
+	}
+	
+	if portConfig.server > 0 {
+		ports["server"] = portConfig.server
+	}
+	
+	if len(addresses) > 0 {
+		config["addresses"] = addresses
+	}
+	if len(ports) > 0 {
+		config["ports"] = ports
 	}
 
 	server.ConfigFile = path.Join(server.CertificatesDir, "consul.conf")
-	if err = ioutil.WriteFile(server.ConfigFile, []byte(fmt.Sprintf(ConsulConfig, server.config.KeyFile, server.config.CertFile, server.config.CAFile)), 0644); err != nil {
-		t.Fatal(err)
+	configFile, err := os.Create(server.ConfigFile)
+	if err != nil {
+		return nil, err
 	}
+	encoder := json.NewEncoder(configFile)
 	
+	err = encoder.Encode(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return server, nil
+}
+
+func(f *ConsulTestServerFactory) NewTestClientServer(t *testing.T) TestServer {
+	server, err := consulServerConfigFromPorts(&SHARED_CONSUL_SERVER_CONFIG)
+	if err != nil {
+		t.Errorf("Unexpected failure starting consul server %#v", err)
+	}
 	server.cmdLeave = exec.Command(f.filePath, "leave")
 	if isUp(&server.config, t) {
 		glog.Infof("Consul agent already running... attempting to shut it down")
@@ -171,12 +283,65 @@ func(f *ConsulTestServerFactory) GetName() string {
 	return "consul"
 }
 
-type ConsulTestServer struct {
-	cmdServer   *exec.Cmd
-	cmdLeave    *exec.Cmd
-	config      storagebackend.Config
-	CertificatesDir	string
-	ConfigFile		string
+func refModify(config *storagebackend.Config, key string, countDelta int, createIfNotFound bool) (newCount int, modifyIndex uint64, err error) {
+	rawStorage, err := storagebackend.CreateRaw(*config)
+	if err != nil {
+		return 0, 0, err
+	}
+	for {
+		var rawObj generic.RawObject
+		err := rawStorage.Get(context.TODO(), key, &rawObj)
+		var refCount int
+		if err != nil {
+			if storage.IsNotFound(err) && createIfNotFound {
+				refCount = 0
+			} else {
+				return 0, 0, err
+			}
+		} else {
+			refCount, err = strconv.Atoi(string(rawObj.Data))
+		}
+		refCount += countDelta
+		if refCount != 0 {
+			rawObj.Data = []byte(strconv.Itoa(refCount))
+			if rawObj.Version != 0 {
+				success, err := rawStorage.Set(context.TODO(), key, &rawObj)
+				if success {
+					return refCount, rawObj.Version, nil
+				}
+				if err != nil {
+					return 0, 0, err
+				}
+			} else {
+				err = rawStorage.Create(context.TODO(), key, rawObj.Data, &rawObj, 0)
+				if err != nil {
+					if !storage.IsNodeExist(err) {
+						return 0, 0, err
+					}
+				} else {
+					// we have successfully created a refCount
+					return refCount, rawObj.Version, nil
+				}
+			}
+		} else {
+			if rawObj.Version == 0 {
+				// we have successfully done nothing to nothing, but why?
+				return 0, 0, nil
+			}
+			precondition := func(rawFilt *generic.RawObject) (bool, error) {
+				return rawFilt.Version == rawObj.Version, nil
+			}
+			err = rawStorage.Delete(context.TODO(), key, nil, precondition)
+			if err != nil {
+				if !storage.IsTestFailed(err) {
+					return 0, 0, err
+				}
+			} else {
+				// we have successfully deleted the ref key at count 0
+				return 0, 0, nil
+			}
+		}
+	}
 }
 
 func isUp(config *storagebackend.Config, t *testing.T) bool {
