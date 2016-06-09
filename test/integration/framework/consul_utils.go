@@ -17,8 +17,15 @@ limitations under the License.
 package framework
 
 import (
+	"fmt"
 	"github.com/golang/glog"
 	consulapi "github.com/hashicorp/consul/api"
+	"golang.org/x/net/context"
+	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/kubernetes/pkg/api/testapi"
+	"k8s.io/kubernetes/pkg/storage/consul/consultest"
+	storagebackend "k8s.io/kubernetes/pkg/storage/storagebackend"
+	"math/rand"
 	// consulstorage "k8s.io/kubernetes/pkg/storage/consul"
 )
 
@@ -77,20 +84,51 @@ func NewExtensionsConsulStorage(client consulapi) storage.Interface {
 */
 
 func RequireConsul() {
-	client := NewConsulClient()
-	_, _, err := client.Get("/", nil)
+	serverList := []string{"http://localhost"}
+	config := storagebackend.Config{
+		Type:       storagebackend.StorageTypeConsul,
+		Codec:      testapi.Default.Codec(),
+		ServerList: serverList,
+		Prefix:     consultest.PathPrefix(),
+		DeserializationCacheSize: consultest.DeserializationCacheSize,
+	}
+
+	_, err := storagebackend.Create(config)
+
 	if err != nil {
 		glog.Fatalf("unable to connect to consul for testing: %v", err)
 	}
 }
 
-/*
 func WithConsulKey(f func(string)) {
-	prefix := fmt.Sprintf("/test-%d", rand.Int63())
-	defer consul.NewKeysAPI(NewConsulClient()).Delete(context.TODO(), prefix, &consul.DeleteOptions{Recursive: true})
+	prefix := fmt.Sprintf("test-%d/test", rand.Int63())
+	defer deleteKey(prefix)
 	f(prefix)
 }
 
+func deleteKey(prefix string) {
+	serverList := []string{"http://localhost"}
+	config := storagebackend.Config{
+		Type:       storagebackend.StorageTypeConsul,
+		Codec:      testapi.Default.Codec(),
+		ServerList: serverList,
+		Prefix:     consultest.PathPrefix(),
+		DeserializationCacheSize: consultest.DeserializationCacheSize,
+	}
+	cstorage, err := storagebackend.Create(config)
+	if err != nil {
+		glog.Fatalf("unexpected error: %v", err)
+	}
+	ctx := context.TODO()
+
+	testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
+	err = cstorage.Delete(ctx, prefix, &testObject, nil)
+	if err != nil {
+		glog.Fatalf("unexpected error: %v", err)
+	}
+}
+
+/*
 // DeleteAllConsulKeys deletes all keys from consul.
 // TODO: Instead of sprinkling calls to this throughout the code, adjust the
 // prefix in consultest package; then just delete everything once at the end
