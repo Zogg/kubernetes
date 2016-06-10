@@ -55,7 +55,8 @@ func TestCreate(t *testing.T) {
 		}
 		consulClient := framework.NewConsulClient()
 
-		prefixedKey := "k8s/" + key
+		prefixedKey := consultest.AddPrefix(key)
+
 		kvPair, _, err := consulClient.Get(prefixedKey, nil)
 
 		if kvPair == nil {
@@ -103,13 +104,17 @@ func TestGet(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		consulClient := framework.NewConsulClient()
+		// TODO: Why can't we use consultest.AddPrefix(key) here?
 		prefixedKey := "k8s/" + key
 		kvPair := &consulapi.KVPair{
 			Key:         prefixedKey,
 			Value:       coded,
 			ModifyIndex: 0,
 		}
-		consulClient.Put(kvPair, nil)
+		_, err = consulClient.Put(kvPair, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		result := api.ServiceAccount{}
 		if err := cstorage.Get(ctx, key, &result, false); err != nil {
 			t.Fatalf("unexpected error: %v", err)
