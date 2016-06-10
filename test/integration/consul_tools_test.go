@@ -45,33 +45,29 @@ func TestCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	ctx := context.TODO()
 
 	framework.WithConsulKey(func(key string) {
 		testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
-		ctx := context.TODO()
 		err = cstorage.Create(ctx, key, &testObject, nil, 0)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-	})
 
-	/*
 		err = cstorage.Get(ctx, key, &testObject, false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(resp.Node.Value))
+		if err != nil {
+			t.Fatalf("unexpected response: %#v", resp.Node)
+		}
 
-			decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(resp.Node.Value))
-			if err != nil {
-				t.Fatalf("unexpected response: %#v", resp.Node)
-			}
-
-					result := *decoded.(*api.ServiceAccount)
-					if !api.Semantic.DeepEqual(testObject, result) {
-						t.Errorf("expected: %#v got: %#v", testObject, result)
-					}
-				})
-	*/
+		result := *decoded.(*api.ServiceAccount)
+		if !api.Semantic.DeepEqual(testObject, result) {
+			t.Errorf("expected: %#v got: %#v", testObject, result)
+		}
+	})
 }
 
 /*
