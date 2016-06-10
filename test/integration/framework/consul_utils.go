@@ -124,7 +124,7 @@ func deleteKey(prefix string) {
 	testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
 	err = cstorage.Delete(ctx, prefix, &testObject, nil)
 	if err != nil {
-		glog.Fatalf("unexpected error: %v", err)
+		glog.Errorf("unexpected error while deleting: %v", err)
 	}
 }
 

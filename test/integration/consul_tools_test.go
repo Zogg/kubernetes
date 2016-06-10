@@ -25,8 +25,10 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
 	"k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/consul/consultest"
 	storagebackend "k8s.io/kubernetes/pkg/storage/storagebackend"
+	"k8s.io/kubernetes/pkg/watch"
 	"k8s.io/kubernetes/test/integration/framework"
 	"testing"
 )
@@ -104,8 +106,7 @@ func TestGet(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		consulClient := framework.NewConsulClient()
-		// TODO: Why can't we use consultest.AddPrefix(key) here?
-		prefixedKey := "k8s/" + key
+		prefixedKey := consultest.AddPrefix(key)
 		kvPair := &consulapi.KVPair{
 			Key:         prefixedKey,
 			Value:       coded,
@@ -128,7 +129,7 @@ func TestGet(t *testing.T) {
 }
 
 /*
-
+// TODO: Implement this once consul has ttls
 func TestWriteTTL(t *testing.T) {
 	client := framework.NewConsulClient()
 	keysAPI := etcd.NewKeysAPI(client)
@@ -183,22 +184,42 @@ func TestWriteTTL(t *testing.T) {
 		}
 	})
 }
+*/
 
 func TestWatch(t *testing.T) {
-	client := framework.NewConsulClient()
-	keysAPI := etcd.NewKeysAPI(client)
-	consulstorage := consulstorage.NewConsulStorage(client, testapi.Default.Codec(), etcdtest.PathPrefix(), false, etcdtest.DeserializationCacheSize)
+	serverList := []string{"http://localhost"}
+	config := storagebackend.Config{
+		Type:       storagebackend.StorageTypeConsul,
+		Codec:      testapi.Default.Codec(),
+		ServerList: serverList,
+		Prefix:     consultest.PathPrefix(),
+		DeserializationCacheSize: consultest.DeserializationCacheSize,
+	}
+
+	cstorage, err := storagebackend.Create(config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	ctx := context.TODO()
+	consulClient := framework.NewConsulClient()
+	coded := runtime.EncodeOrDie(testapi.Default.Codec(), &api.Pod{ObjectMeta: api.ObjectMeta{Name: "foo"}})
+
 	framework.WithConsulKey(func(key string) {
-		key = etcdtest.AddPrefix(key)
-		resp, err := keysAPI.Set(ctx, key, runtime.EncodeOrDie(testapi.Default.Codec(), &api.Pod{ObjectMeta: api.ObjectMeta{Name: "foo"}}), nil)
+		prefixedKey := consultest.AddPrefix(key)
+
+		kvPair := &consulapi.KVPair{
+			Key:         prefixedKey,
+			Value:       []byte(coded),
+			ModifyIndex: 0,
+		}
+		_, err = consulClient.Put(kvPair, nil)
+
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		expectedVersion := resp.Node.ModifiedIndex
+		expectedVersion := kvPair.ModifyIndex
+		w, err := cstorage.Watch(ctx, key, "0", storage.Everything)
 
-		// watch should load the object at the current index
-		w, err := consulstorage.Watch(ctx, key, "0", storage.Everything)
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -240,4 +261,3 @@ func TestWatch(t *testing.T) {
 		}
 	})
 }
-*/
