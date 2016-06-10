@@ -20,6 +20,7 @@ package integration
 
 import (
 	//	"strconv"
+	consulapi "github.com/hashicorp/consul/api"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
@@ -79,30 +80,40 @@ func TestCreate(t *testing.T) {
 	})
 }
 
-/*
 func TestGet(t *testing.T) {
-	client := framework.NewConsulClient()
-	keysAPI := etcd.NewKeysAPI(client)
-	consulstorage := consulstorage.NewConsulStorage(client, testapi.Default.Codec(), "", false, etcdtest.DeserializationCacheSize)
+	serverList := []string{"http://localhost"}
+	config := storagebackend.Config{
+		Type:       storagebackend.StorageTypeConsul,
+		Codec:      testapi.Default.Codec(),
+		ServerList: serverList,
+		Prefix:     consultest.PathPrefix(),
+		DeserializationCacheSize: consultest.DeserializationCacheSize,
+	}
+
+	cstorage, err := storagebackend.Create(config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	ctx := context.TODO()
 
 	framework.WithConsulKey(func(key string) {
 		testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
-		err = cstorage.Create(ctx, key, &testObject, nil, 0)
+		coded, err := runtime.Encode(testapi.Default.Codec(), &testObject)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-
-		err = cstorage.Get(ctx, key, &testObject, false)
-		if err != nil {
+		consulClient := framework.NewConsulClient()
+		prefixedKey := "k8s/" + key
+		kvPair := &consulapi.KVPair{
+			Key:         prefixedKey,
+			Value:       coded,
+			ModifyIndex: 0,
+		}
+		consulClient.Put(kvPair, nil)
+		result := api.ServiceAccount{}
+		if err := cstorage.Get(ctx, key, &result, false); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(resp.Node.Value))
-		if err != nil {
-			t.Fatalf("unexpected response: %#v", resp.Node)
-		}
-
-		result := *decoded.(*api.ServiceAccount)
 		// Propagate ResourceVersion (it is set automatically).
 		testObject.ObjectMeta.ResourceVersion = result.ObjectMeta.ResourceVersion
 		if !api.Semantic.DeepEqual(testObject, result) {
@@ -110,7 +121,6 @@ func TestGet(t *testing.T) {
 		}
 	})
 }
-*/
 
 /*
 
