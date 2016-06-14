@@ -24,15 +24,15 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
 	"k8s.io/kubernetes/pkg/runtime"
-	"k8s.io/kubernetes/pkg/storage"
+	//	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/consul/consultest"
 	storagebackend "k8s.io/kubernetes/pkg/storage/storagebackend"
-	"k8s.io/kubernetes/pkg/watch"
+	//	"k8s.io/kubernetes/pkg/watch"
 	"k8s.io/kubernetes/test/integration/framework"
 	"testing"
 )
 
-func TestCreate(t *testing.T) {
+func TestConsulCreate(t *testing.T) {
 	serverList := []string{"http://localhost"}
 	config := storagebackend.Config{
 		Type:       storagebackend.StorageTypeConsul,
@@ -82,7 +82,7 @@ func TestCreate(t *testing.T) {
 	})
 }
 
-func TestGet(t *testing.T) {
+func TestConsulGet(t *testing.T) {
 	serverList := []string{"http://localhost"}
 	config := storagebackend.Config{
 		Type:       storagebackend.StorageTypeConsul,
@@ -129,7 +129,7 @@ func TestGet(t *testing.T) {
 
 /*
 // TODO: Implement this once consul has ttls
-func TestWriteTTL(t *testing.T) {
+func TestConsulWriteTTL(t *testing.T) {
 	client := framework.NewConsulClient()
 	keysAPI := etcd.NewKeysAPI(client)
 	consulstorage := consulstorage.NewConsulStorage(client, testapi.Default.Codec(), "", false, etcdtest.DeserializationCacheSize)
@@ -185,7 +185,8 @@ func TestWriteTTL(t *testing.T) {
 }
 */
 
-func TestWatch(t *testing.T) {
+/*
+func TestConsulWatch(t *testing.T) {
 	serverList := []string{"http://localhost"}
 	config := storagebackend.Config{
 		Type:       storagebackend.StorageTypeConsul,
@@ -250,3 +251,4 @@ func TestWatch(t *testing.T) {
 		w.Stop()
 	})
 }
+*/
