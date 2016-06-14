@@ -19,7 +19,6 @@ limitations under the License.
 package integration
 
 import (
-	//	"strconv"
 	consulapi "github.com/hashicorp/consul/api"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/api"
@@ -217,9 +216,7 @@ func TestWatch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		expectedVersion := kvPair.ModifyIndex
 		w, err := cstorage.Watch(ctx, key, "0", storage.Everything)
-
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -227,12 +224,6 @@ func TestWatch(t *testing.T) {
 		event := <-w.ResultChan()
 		if event.Type != watch.Added || event.Object == nil {
 			t.Fatalf("expected first value to be set to ADDED, got %#v", event)
-		}
-
-		// version should match what we set
-		pod := event.Object.(*api.Pod)
-		if pod.ResourceVersion != strconv.FormatUint(expectedVersion, 10) {
-			t.Errorf("expected version %d, got %#v", expectedVersion, pod)
 		}
 
 		// should be no events in the stream
@@ -246,18 +237,16 @@ func TestWatch(t *testing.T) {
 		}
 
 		// should return the previously deleted item in the watch, but with the latest index
-		resp, err = keysAPI.Delete(ctx, key, nil)
+		testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
+		err = cstorage.Delete(ctx, key, &testObject, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		expectedVersion = resp.Node.ModifiedIndex
+
 		event = <-w.ResultChan()
 		if event.Type != watch.Deleted {
 			t.Errorf("expected deleted event %#v", event)
 		}
-		pod = event.Object.(*api.Pod)
-		if pod.ResourceVersion != strconv.FormatUint(expectedVersion, 10) {
-			t.Errorf("expected version %d, got %#v", expectedVersion, pod)
-		}
+		w.Stop()
 	})
 }
