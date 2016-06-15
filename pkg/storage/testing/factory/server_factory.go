@@ -301,7 +301,6 @@ func(f *ConsulSharedTestServerFactory) connectSharedConsulServer(t *testing.T) (
 		    }
 		    var sysproc = &syscall.SysProcAttr{ }
 		    var attr = os.ProcAttr{
-		        Dir: "/home/brian",
 		        Env: os.Environ(),
 		        Files: []*os.File{
 		            nullFile,
