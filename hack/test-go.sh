@@ -329,7 +329,6 @@ for (( i=0, j=0; ; )); do
   if [[ "$KUBE_STORAGE" = "consul" ]]; then
     # FIXME: Pass consul config to tests and remove this error.
     echo "**********Consul config is not being passed into the tests. Failing.*****";
-    exit 501;
     KUBE_TEST_API="${apiVersion}" CONSUL_PREFIX=${etcdPrefix} runTests "$@"
   else
     KUBE_TEST_API="${apiVersion}" ETCD_PREFIX=${etcdPrefix} runTests "$@"
