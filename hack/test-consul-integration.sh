@@ -42,7 +42,7 @@ cleanup() {
 }
 
 runTests() {
-  kube::consul::start
+#  kube::consul::start
 
   kube::log::status "Running integration test cases"
 
