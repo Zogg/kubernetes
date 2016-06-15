@@ -19,19 +19,20 @@ limitations under the License.
 package integration
 
 import (
-	//	"strconv"
-	"testing"
-
+	consulapi "github.com/hashicorp/consul/api"
 	"golang.org/x/net/context"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
-	// "k8s.io/kubernetes/pkg/runtime"
+	"k8s.io/kubernetes/pkg/runtime"
+	//	"k8s.io/kubernetes/pkg/storage"
 	"k8s.io/kubernetes/pkg/storage/consul/consultest"
 	storagebackend "k8s.io/kubernetes/pkg/storage/storagebackend"
+	//	"k8s.io/kubernetes/pkg/watch"
 	"k8s.io/kubernetes/test/integration/framework"
+	"testing"
 )
 
-func TestCreate(t *testing.T) {
+func TestConsulCreate(t *testing.T) {
 	serverList := []string{"http://localhost"}
 	config := storagebackend.Config{
 		Type:       storagebackend.StorageTypeConsul,
@@ -45,53 +46,77 @@ func TestCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	ctx := context.TODO()
 
-	/*
-			err = cstorage.Get(ctx, key, &testObject, false)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+	framework.WithConsulKey(func(key string) {
+		testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
+		err = cstorage.Create(ctx, key, &testObject, nil, 0)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		consulClient := framework.NewConsulClient()
 
-				decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(resp.Node.Value))
-				if err != nil {
-					t.Fatalf("unexpected response: %#v", resp.Node)
-				}
+		prefixedKey := consultest.AddPrefix(key)
 
-						result := *decoded.(*api.ServiceAccount)
-						if !api.Semantic.DeepEqual(testObject, result) {
-							t.Errorf("expected: %#v got: %#v", testObject, result)
-						}
-					})
+		kvPair, _, err := consulClient.Get(prefixedKey, nil)
 
-		framework.WithConsulKey(func(key string) {
-			testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
-			ctx := context.TODO()
-			err = cstorage.Create(ctx, key, &testObject, nil, 0)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
-	*/
+		if kvPair == nil {
+			t.Fatalf("Key %v not found", key)
+		}
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		decoded, err := runtime.Decode(testapi.Default.Codec(), []byte(kvPair.Value))
+		if err != nil {
+			t.Fatalf("unexpected response: %#v", kvPair.Value)
+		}
+		result := *decoded.(*api.ServiceAccount)
+
+		// Propagate ResourceVersion (it is set automatically).
+		testObject.ObjectMeta.ResourceVersion = result.ObjectMeta.ResourceVersion
+		if !api.Semantic.DeepEqual(testObject, result) {
+			t.Errorf("expected: %#v got: %#v", testObject, result)
+		}
+	})
 }
 
-/*
-func TestGet(t *testing.T) {
-	client := framework.NewConsulClient()
-	keysAPI := etcd.NewKeysAPI(client)
-	consulstorage := consulstorage.NewConsulStorage(client, testapi.Default.Codec(), "", false, etcdtest.DeserializationCacheSize)
+func TestConsulGet(t *testing.T) {
+	serverList := []string{"http://localhost"}
+	config := storagebackend.Config{
+		Type:       storagebackend.StorageTypeConsul,
+		Codec:      testapi.Default.Codec(),
+		ServerList: serverList,
+		Prefix:     consultest.PathPrefix(),
+		DeserializationCacheSize: consultest.DeserializationCacheSize,
+	}
+
+	cstorage, err := storagebackend.Create(config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	ctx := context.TODO()
+
 	framework.WithConsulKey(func(key string) {
 		testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
 		coded, err := runtime.Encode(testapi.Default.Codec(), &testObject)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		_, err = keysAPI.Set(ctx, key, string(coded), nil)
+		consulClient := framework.NewConsulClient()
+		prefixedKey := consultest.AddPrefix(key)
+		kvPair := &consulapi.KVPair{
+			Key:         prefixedKey,
+			Value:       coded,
+			ModifyIndex: 0,
+		}
+		_, err = consulClient.Put(kvPair, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		result := api.ServiceAccount{}
-		if err := consulstorage.Get(ctx, key, &result, false); err != nil {
+		if err := cstorage.Get(ctx, key, &result, false); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		// Propagate ResourceVersion (it is set automatically).
@@ -102,7 +127,9 @@ func TestGet(t *testing.T) {
 	})
 }
 
-func TestWriteTTL(t *testing.T) {
+/*
+// TODO: Implement this once consul has ttls
+func TestConsulWriteTTL(t *testing.T) {
 	client := framework.NewConsulClient()
 	keysAPI := etcd.NewKeysAPI(client)
 	consulstorage := consulstorage.NewConsulStorage(client, testapi.Default.Codec(), "", false, etcdtest.DeserializationCacheSize)
@@ -156,22 +183,41 @@ func TestWriteTTL(t *testing.T) {
 		}
 	})
 }
+*/
 
-func TestWatch(t *testing.T) {
-	client := framework.NewConsulClient()
-	keysAPI := etcd.NewKeysAPI(client)
-	consulstorage := consulstorage.NewConsulStorage(client, testapi.Default.Codec(), etcdtest.PathPrefix(), false, etcdtest.DeserializationCacheSize)
+/*
+func TestConsulWatch(t *testing.T) {
+	serverList := []string{"http://localhost"}
+	config := storagebackend.Config{
+		Type:       storagebackend.StorageTypeConsul,
+		Codec:      testapi.Default.Codec(),
+		ServerList: serverList,
+		Prefix:     consultest.PathPrefix(),
+		DeserializationCacheSize: consultest.DeserializationCacheSize,
+	}
+
+	cstorage, err := storagebackend.Create(config)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	ctx := context.TODO()
+	consulClient := framework.NewConsulClient()
+	coded := runtime.EncodeOrDie(testapi.Default.Codec(), &api.Pod{ObjectMeta: api.ObjectMeta{Name: "foo"}})
+
 	framework.WithConsulKey(func(key string) {
-		key = etcdtest.AddPrefix(key)
-		resp, err := keysAPI.Set(ctx, key, runtime.EncodeOrDie(testapi.Default.Codec(), &api.Pod{ObjectMeta: api.ObjectMeta{Name: "foo"}}), nil)
+		prefixedKey := consultest.AddPrefix(key)
+
+		kvPair := &consulapi.KVPair{
+			Key:         prefixedKey,
+			Value:       []byte(coded),
+			ModifyIndex: 0,
+		}
+		_, err = consulClient.Put(kvPair, nil)
+
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		expectedVersion := resp.Node.ModifiedIndex
-
-		// watch should load the object at the current index
-		w, err := consulstorage.Watch(ctx, key, "0", storage.Everything)
+		w, err := cstorage.Watch(ctx, key, "0", storage.Everything)
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
@@ -179,12 +225,6 @@ func TestWatch(t *testing.T) {
 		event := <-w.ResultChan()
 		if event.Type != watch.Added || event.Object == nil {
 			t.Fatalf("expected first value to be set to ADDED, got %#v", event)
-		}
-
-		// version should match what we set
-		pod := event.Object.(*api.Pod)
-		if pod.ResourceVersion != strconv.FormatUint(expectedVersion, 10) {
-			t.Errorf("expected version %d, got %#v", expectedVersion, pod)
 		}
 
 		// should be no events in the stream
@@ -198,19 +238,17 @@ func TestWatch(t *testing.T) {
 		}
 
 		// should return the previously deleted item in the watch, but with the latest index
-		resp, err = keysAPI.Delete(ctx, key, nil)
+		testObject := api.ServiceAccount{ObjectMeta: api.ObjectMeta{Name: "foo"}}
+		err = cstorage.Delete(ctx, key, &testObject, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		expectedVersion = resp.Node.ModifiedIndex
+
 		event = <-w.ResultChan()
 		if event.Type != watch.Deleted {
 			t.Errorf("expected deleted event %#v", event)
 		}
-		pod = event.Object.(*api.Pod)
-		if pod.ResourceVersion != strconv.FormatUint(expectedVersion, 10) {
-			t.Errorf("expected version %d, got %#v", expectedVersion, pod)
-		}
+		w.Stop()
 	})
 }
 */

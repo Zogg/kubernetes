@@ -30,7 +30,7 @@ func PathPrefix() string {
 	if pref == "" {
 		pref = "k8s"
 	}
-	return path.Join("/", pref)
+	return path.Join(pref, "/")
 }
 
 // Adds the ETCD_PREFIX to the provided key
