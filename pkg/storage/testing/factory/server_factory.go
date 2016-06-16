@@ -272,26 +272,16 @@ func(f *ConsulSharedTestServerFactory) connectSharedConsulServer(t *testing.T) (
 		// if the server is already up
 		if isUp(&server.config, t) {
 			// try to secure a reference to it
-			_, index, err := refModify(&server.config, SHARED_CONSUL_REFCOUNT_KEY, 1, false)
-			if err == nil {
+			count, index, status := refModify(&server.config, SHARED_CONSUL_REFCOUNT_KEY, 1, false)
+			glog.Infof("refModify(%d) returned (%d, %d, %s)", 1, count, index, status)
+			if status == REF_ACQUIRED {
 				// we now have a reference on the shared server :)
 				return server, index, nil
 			}
 			
-			if storage.IsNotFound(err) {
-				// server is either starting up or shutting down... let's spin
-				// for a moment and hope it reaches either state soon
-				<-time.After(100*time.Millisecond)
-				continue
-			}
-			
-			// other errors are likely caused by the server shutting down between
-			// our calls to isUp and refModify... if this has happened, there is
-			// no need to wait before spinning.
-			fmt.Printf("Error trying to modify refcount %v", err)
+			// server is either starting up or shutting down... let's spin
+			// for a moment and hope it reaches either state soon
 			<-time.After(100*time.Millisecond)
-			
-			// TODO: validate error conditions to ensure this is the case
 			continue
 		} else {
 			// if the server is not started, then we start it
@@ -347,8 +337,9 @@ func(f *ConsulSharedTestServerFactory) connectSharedConsulServer(t *testing.T) (
 				case <-timeout:
 					if isUp(&server.config, t) {
 						process.Release()
-						_, index, err := refModify(&server.config, SHARED_CONSUL_REFCOUNT_KEY, 1, true)
-						if err == nil {
+						count, index, status := refModify(&server.config, SHARED_CONSUL_REFCOUNT_KEY, 1, true)
+						glog.Infof("refModify(%d) returned (%d, %d, %s) in startup", 1, count, index, status)
+						if status == REF_ACQUIRED {
 							return server, index, nil
 						}
 						break
@@ -361,6 +352,7 @@ func(f *ConsulSharedTestServerFactory) connectSharedConsulServer(t *testing.T) (
 			}
 		}
 	}
+	panic("ConsulRef OMG WTF NO")
 }
 
 func(f *ConsulSharedTestServerFactory) NewTestClientServer(t *testing.T) TestServer {
@@ -386,10 +378,20 @@ func(f *ConsulSharedTestServerFactory) GetName() string {
 	return "consul"
 }
 
-func refModify(config *storagebackend.Config, key string, countDelta int, createIfNotFound bool) (newCount int, modifyIndex uint64, err error) {
+type refStatus string
+
+const (
+	REF_ACQUIRED = "REF_ACQUIRED"
+	REF_FAILED_NOT_STARTED = "REF_FAILED_NOT_STARTED"
+	REF_FAILED_SHUTTING_DOWN = "REF_FAILED_SHUTTING_DOWN"
+	REF_RELEASED = "REF_RELEASED"
+	REF_RELEASED_SHUTDOWN = "REF_RELEASED_SHUTDOWN"
+)
+func refModify(config *storagebackend.Config, key string, countDelta int, createIfNotFound bool) (int, uint64, refStatus) {
 	rawStorage, err := storagebackend.CreateRaw(*config)
 	if err != nil {
-		return 0, 0, err
+		glog.Infof( "ConsulRef Failed to change ref-count by %d. returning %s", countDelta, REF_FAILED_NOT_STARTED)
+		return 0, 0, REF_FAILED_NOT_STARTED
 	}
 	for {
 		var rawObj generic.RawObject
@@ -400,61 +402,58 @@ func refModify(config *storagebackend.Config, key string, countDelta int, create
 				refCount = 0
 				rawObj.Version = 0
 			} else {
-				return 0, 0, err
+				glog.Infof( "ConsulRef Failed to change ref-count by %d. returning %s", countDelta, REF_FAILED_NOT_STARTED)
+				return 0, 0, REF_FAILED_NOT_STARTED
 			}
 		} else {
 			refCount, err = strconv.Atoi(string(rawObj.Data))
+			if err != nil {
+				glog.Errorf( "Failed to parse refCount from %v got %d", rawObj, refCount )
+			}
+			if refCount == 0 {
+				glog.Infof( "ConsulRef Failed to change ref-count by %d. returning %s", countDelta, REF_RELEASED_SHUTDOWN)
+				return 0, 0, REF_RELEASED_SHUTDOWN
+			}
 		}
 		refCount += countDelta
-		if refCount != 0 {
-			rawObj.Data = []byte(strconv.Itoa(refCount))
-			if rawObj.Version != 0 {
-				success, err := rawStorage.Set(context.TODO(), key, &rawObj)
-				if success {
-					return refCount, rawObj.Version, nil
-				}
-				if err != nil {
-					<-time.After(100*time.Millisecond)
-					//return 0, 0, err
-				}
-			} else {
-				err = rawStorage.Create(context.TODO(), key, rawObj.Data, &rawObj, 0)
-				if err != nil {
-					if !storage.IsNodeExist(err) {
-						<-time.After(100*time.Millisecond)
-						//return 0, 0, err
-					}
-					continue
-				} else {
-					// we have successfully created a refCount
-					return refCount, rawObj.Version, nil
-				}
-			}
+		var statusSuccess refStatus
+		if countDelta > 0 {
+			statusSuccess = REF_ACQUIRED
 		} else {
-			if rawObj.Version == 0 {
-				// we have successfully done nothing to nothing, but why?
-				return 0, 0, nil
-			}
-			precondition := func(rawFilt *generic.RawObject) (bool, error) {
-				return rawFilt.Version == rawObj.Version, nil
-			}
-			err = rawStorage.Delete(context.TODO(), key, nil, precondition)
-			if err != nil {
-				if !storage.IsTestFailed(err) {
-					<-time.After(100*time.Millisecond)
-					//return 0, 0, err
-				}
+			if refCount == 0 {
+				statusSuccess = REF_RELEASED_SHUTDOWN
 			} else {
-				// we have successfully deleted the ref key at count 0
-				return 0, 0, nil
+				statusSuccess = REF_RELEASED
+			}
+		}
+		rawObj.Data = []byte(strconv.Itoa(refCount))
+		if rawObj.Version != 0 {
+			success, err := rawStorage.Set(context.TODO(), key, &rawObj)
+			if success {
+				glog.Infof( "ConsulRef Successfully changed ref-count by %d to %d. returning %s", countDelta, refCount, statusSuccess)
+				return refCount, rawObj.Version, statusSuccess
+			}
+			if err != nil {
+				<-time.After(100*time.Millisecond)
+			}
+			continue
+		} else {
+			err = rawStorage.Create(context.TODO(), key, rawObj.Data, &rawObj, 0)
+			if err != nil {
+				if !storage.IsNodeExist(err) {
+					<-time.After(100*time.Millisecond)
+				}
+				continue
+			} else {
+				// we have successfully created a refCount
+				glog.Infof( "ConsulRef Successfully changed ref-count by %d to %d. returning %s", countDelta, refCount, statusSuccess)
+				return refCount, rawObj.Version, statusSuccess
 			}
 		}
 	}
 }
 
 func isUp(config *storagebackend.Config, t *testing.T) bool {
-	//_, _, err := refModify(config, SHARED_CONSUL_REFCOUNT_KEY, 0, false)
-	//return err == nil
 	rawStorage, err := storagebackend.CreateRaw(*config)
 	if err != nil {
 		glog.Infof("Failed to get raw storage (retrying): %v", err)
@@ -485,17 +484,21 @@ func(s *ConsulSharedTestServer) NewRawStorage() generic.InterfaceRaw {
 }
 
 func(s *ConsulSharedTestServer) Terminate(t *testing.T) {
-	count, _, err := refModify(&s.config, SHARED_CONSUL_REFCOUNT_KEY, -1, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count == 0 {
+	count, index, status := refModify(&s.config, SHARED_CONSUL_REFCOUNT_KEY, -1, false)
+	glog.Infof("refModify(%d) returned (%d, %d, %s)", 1, count, index, status)
+	if status == REF_RELEASED_SHUTDOWN {
 		err := s.cmdLeave.Run()
 		if err != nil {
 			// well damn... what do we do now?
 			t.Errorf("unexpected error while stopping consul: %v", err)
 		}
+		fmt.Println("Shutting down dereferenced consul server")
+	} else if status != REF_RELEASED {
+		fmt.Println("ConsulRef Failed to release ref for unknown reason")
+	} else {
+		fmt.Println("ConsulRef Dereferenced consul serve... now has %d references remaining.", count)
 	}
+	// TODO: figure out some way to safely clean up the config directory
 	//if err := os.RemoveAll(s.CertificatesDir); err != nil {
 	//	t.Fatal(err)
 	//}
