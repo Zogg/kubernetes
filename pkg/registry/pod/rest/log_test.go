@@ -36,7 +36,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestPodLogValidates(t *testing.T) {
-	etcdStorage, _ := registrytest.NewStorage(t, factory, "")
+	etcdStorage, server := registrytest.NewStorage(t, factory, "")
+	defer server.Terminate(t)
 	store := &registry.Store{
 		Storage: etcdStorage,
 	}
