@@ -57,7 +57,7 @@ endif
 
 ifeq ($(ARCH),amd64)
 	# When building "normally" for amd64, remove the whole line, it has no part in the amd64 image
-	cd ${TEMP_DIR} && sed -i ""  "/CROSS_BUILD_/d" Dockerfile
+	# cd ${TEMP_DIR} && sed -i ""  "/CROSS_BUILD_/d" Dockerfile
 else
 	# When cross-building, only the placeholder "CROSS_BUILD_" should be removed
 	# Register /usr/bin/qemu-ARCH-static as the handler for ARM binaries in the kernel
